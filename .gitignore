@@ -1,7 +1,12 @@
 # Local project material
 /prototype/
 /AGENTS.md
-/docs/
+
+# 设计文档留在本地，数据库 SQL 随项目提交。
+# Keep design documents local and include database SQL in the repository.
+/docs/**
+!/docs/**/
+!/docs/**/*.sql
 
 # IntelliJ 的本机项目设置。
 # Local IntelliJ project settings.

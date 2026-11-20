@@ -27,7 +27,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.regex.Pattern;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
@@ -36,9 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-/** 验证持久化对象的框架映射，可结合本地 SQL 草案逐列核验。 Verifies framework mappings and checks each column when the local SQL draft is available. */
+/** 验证持久化对象的框架映射，并对照版本库中的 SQL 草案逐列核验。 Verifies framework mappings and checks each column against the versioned SQL draft. */
 public class DataObjectMappingTest {
 
     /** 草案中每张表先声明所有列，再声明主键。 The schema declares all columns of each table before its primary key. */
@@ -95,14 +93,10 @@ public class DataObjectMappingTest {
      */
     @Test
     public void mapsEverySchemaColumn() throws IOException, ReflectiveOperationException {
-        // SQL 草案由开发者在本地维护，公开检出时将这项额外核对标记为跳过。
-        // The SQL draft is maintained locally. Report this additional check as skipped in a public checkout.
-        var schema = findSchema();
-        assumeTrue(schema.isPresent(), "Local docs/backend/schema.sql is unavailable");
         // 使用运行期的 MyBatis-Plus 元数据检查自动生成 SQL 可以看到的列。
         // Use runtime MyBatis-Plus metadata to check the columns visible to generated SQL.
         var assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "row-mapping-test");
-        var tables = TABLE.matcher(Files.readString(schema.orElseThrow()));
+        var tables = TABLE.matcher(Files.readString(findSchema()));
         assertTrue(tables.find(), "No CREATE TABLE definitions found");
         do {
             // 根据数据库表名及统一的实体包生成约定类名，让新建表自动纳入校验。
@@ -159,18 +153,19 @@ public class DataObjectMappingTest {
      * 从模块、聚合工程或仓库根目录找到同一份 SQL 草案。
      * Locates the same SQL draft from the module, reactor or repository root.
      *
-     * @return 存在时返回草案路径。 Draft path if present.
+     * @return 仓库中的 SQL 草案路径。 Path to the versioned SQL draft.
+     * @throws IOException 无法在项目内定位 SQL 草案。 The SQL draft cannot be found in the project.
      */
-    private static Optional<Path> findSchema() {
+    private static Path findSchema() throws IOException {
         // Maven 或 IDE 的工作目录可能位于仓库的不同层级。
         // Maven and IDE working directories may be at different levels in the checkout.
         for (Path dir = Path.of("").toAbsolutePath(); dir != null; dir = dir.getParent()) {
             Path candidate = dir.resolve("docs/backend/schema.sql");
             if (Files.isRegularFile(candidate)) {
-                return Optional.of(candidate);
+                return candidate;
             }
         }
-        return Optional.empty();
+        throw new IOException("Cannot find versioned docs/backend/schema.sql from " + Path.of("").toAbsolutePath());
     }
 
     /**
