@@ -2,7 +2,7 @@
 
 GGBOY 是一个 Solana DeFi 作品。它借鉴 FBYT 的策略金库，在同一应用内提供独立运行的抵押借贷市场。投资者用测试资产买入金库份额，管理者调仓并出借闲置资金，借款人抵押资产借出测试稳定币，第三方可以清算低于健康度要求的仓位。
 
-当前阶段为架构设计。以下模块、目录和验收流程用于指导实现。日常开发在 Localnet 进行，公开演示部署到 Solana Devnet。 [FBYT 产品说明](https://fbyt.io/product) · [FBYT 闲置资金出借](https://fbyt.io/earn)
+当前阶段为工程初始化。前端、后端和链上已建立基础脚手架，以下架构与验收流程用于指导业务实现。日常开发在 Localnet 进行，公开演示部署到 Solana Devnet。 [FBYT 产品说明](https://fbyt.io/product) · [FBYT 闲置资金出借](https://fbyt.io/earn)
 
 ## 整体架构
 
@@ -35,7 +35,7 @@ flowchart LR
 | 层 | 技术栈 | 职责 |
 | --- | --- | --- |
 | 前端 | React、TypeScript、Vite、Solana RPC 客户端、Anchor IDL、Phantom | 构造并预览交易，由发起方钱包签名，提交后跟踪确认状态。展示金库净值、资产配置、当前可赎回额、借贷仓位、健康度和交易历史。 |
-| 后端 | **JDK 25**、Spring Boot 4.x、Spring Web、Maven、PostgreSQL、Flyway、Solana JSON-RPC/WebSocket | 索引账户与交易，提供历史、净值快照、市场和仓位查询，以及风险提示。 |
+| 后端 | **JDK 25**、Spring Boot 4.x、Spring Web、Maven、PostgreSQL、MyBatis-Plus、Flyway、Solana JSON-RPC/WebSocket | 索引账户与交易，提供历史、净值快照、市场和仓位查询，以及风险提示。MyBatis-Plus 负责数据访问，Flyway 管理数据库迁移。 |
 | 链上 | Rust、Anchor、SPL Token、PDA、CPI | 策略金库与借贷市场分别管理各自的资产和状态。测试预言机提供可控价格，测试兑换程序执行调仓。 |
 
 余额、份额、债务和交易是否达成均以链上状态为准。后端承担读取和索引，签名密钥由钱包持有。 [Spring Boot 兼容性](https://docs.spring.io/spring-boot/system-requirements.html) · [Solana CPI](https://solana.com/docs/core/cpi)
@@ -78,8 +78,8 @@ LTV = 债务价值 ÷ 抵押品价值
 
 ## 后端索引与查询
 
-1. 订阅金库和借贷程序事件，通过 RPC 获取已确认交易、解析指令与事件。持久化历史时用网络、交易签名与事件序号作为幂等键，按游标补扫断线期间的交易，并按最终确认状态更新记录。
-2. PostgreSQL 保存事件、仓位快照、净值快照和同步游标。REST API 为页面提供历史、配置和快照，返回数据对应的链上 slot。
+1. 开发初期用模拟事件联调。接入 Solana 后，通过 RPC 按程序发现交易并解析已最终确认且执行成功的业务事件。历史按网络、交易签名与事件序号去重，通过同步游标支持断线补扫。
+2. PostgreSQL 保存事件、资源目录、仓位与净值快照和同步游标。REST API 为页面提供历史、配置和快照，返回数据对应的链上 slot。已映射的数据表和 Java 类型见[数据库实体索引](backend/ggboy-app/src/main/java/io/ggboy/backend/entity/README.md)。
 3. 前端通过 RPC 读取当前仓位，展示借款、还款和取回抵押操作后的健康度预览。最终额度、价格有效性和清算资格由链上指令重新校验。
 
 ## 开发与演示环境
@@ -93,11 +93,16 @@ LTV = 债务价值 ÷ 抵押品价值
 
 ## 规划目录
 
+[前端](frontend/README.md) · [后端](backend/README.md) · [链上程序](onchain/README.md)
+
 ```text
 GGBOY/
 ├── README.md
 ├── frontend/        React 前端
-├── backend/         Spring Boot 后端与数据库迁移
+├── backend/         Maven 聚合工程，使用 JDK 25
+│   ├── ggboy-app/   Spring Boot 服务、数据访问与数据库迁移
+│   ├── ggboy-core/  业务值对象和业务类型
+│   └── ggboy-common/ 公共响应、错误类型和通用校验
 └── onchain/         Anchor 工作区
     ├── programs/    金库、借贷和测试兑换程序
     ├── scripts/     部署、创建测试代币与演示初始化

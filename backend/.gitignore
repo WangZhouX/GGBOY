@@ -1,0 +1,15 @@
+# Maven 构建输出。
+# Maven build output.
+target/
+
+# IntelliJ 在本机维护项目模型和 WSL 运行目标。
+# IntelliJ maintains its project model and WSL run targets locally.
+/.idea/
+
+# 本地数据库配置及密钥。
+# Local database settings and credentials.
+/.env
+/.env.*
+/ggboy-app/src/main/resources/application-local.yml
+/ggboy-app/src/main/resources/application-local.yaml
+/ggboy-app/src/main/resources/application-local.properties

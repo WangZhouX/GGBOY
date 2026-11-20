@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.ggboy</groupId>
+        <artifactId>ggboy-backend</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ggboy-app</artifactId>
+
+    <description>Solana DeFi indexer and query API</description>
+
+    <properties>
+        <!-- Mapper 编译与运行使用同一批具名 API 模块。
+             Use the same named API modules for mapper compilation and execution. -->
+        <mapper-module-artifacts>mybatis,mybatis-plus-core,mybatis-plus-annotation</mapper-module-artifacts>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.ggboy</groupId>
+            <artifactId>ggboy-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.ggboy</groupId>
+            <artifactId>ggboy-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Mapper 接口与注解参与模块编译，Starter 负责运行期自动配置。
+             Compile against mapper interfaces and annotations; load starter auto-configuration at runtime. -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-core</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+            <version>${mybatis-plus.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 应用自身也是具名模块，与框架模块一起发布到 modules 目录。
+                 Publish the application itself as a named module alongside the framework modules. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <outputDirectory>${project.build.directory}/modules</outputDirectory>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <!-- 项目模块和 Spring 的具名/自动模块进入 JPMS module path。
+                         Place the project modules and Spring modules on the JPMS module path. -->
+                    <execution>
+                        <id>stage-module-path</id>
+                        <phase>package</phase>
+                        <goals><goal>copy-dependencies</goal></goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <includeGroupIds>io.ggboy,org.springframework,org.springframework.boot</includeGroupIds>
+                            <outputDirectory>${project.build.directory}/modules</outputDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>stage-mapper-modules</id>
+                        <phase>package</phase>
+                        <goals><goal>copy-dependencies</goal></goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <includeArtifactIds>${mapper-module-artifacts}</includeArtifactIds>
+                            <outputDirectory>${project.build.directory}/modules</outputDirectory>
+                        </configuration>
+                    </execution>
+                    <!-- MyBatis-Plus 的自动配置包存在包名重叠，使用 classpath 加载。
+                         Load the MyBatis-Plus auto-configuration jars with overlapping packages on the classpath. -->
+                    <execution>
+                        <id>stage-class-path</id>
+                        <phase>package</phase>
+                        <goals><goal>copy-dependencies</goal></goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <excludeArtifactIds>${mapper-module-artifacts}</excludeArtifactIds>
+                            <excludeGroupIds>io.ggboy,org.springframework,org.springframework.boot</excludeGroupIds>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

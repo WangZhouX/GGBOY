@@ -1,0 +1,9 @@
+# 忽略生成的 ELF、IDL、类型和部署密钥对。
+# Ignore generated ELF files, IDLs, types, and deployment keypairs.
+/target/
+
+# 忽略 Anchor 本地验证器和测试账本。
+# Ignore Anchor's local validator and test ledger.
+/.anchor/
+/test-ledger/
+*-keypair.json

@@ -1,3 +1,8 @@
 # Local project material
 /prototype/
 /AGENTS.md
+/docs/
+
+# IntelliJ 的本机项目设置。
+# Local IntelliJ project settings.
+.idea/

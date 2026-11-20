@@ -1,0 +1,17 @@
+[toolchain]
+# 固定构建工具版本，与 Cargo 依赖和本地 Agave 环境保持一致。
+# Pin the build tools to match Cargo dependencies and the local Agave environment.
+anchor_version = "1.2.2"
+solana_version = "4.1.2"
+
+[programs.localnet]
+# 这里只记录公开地址，构建用密钥对保存在被忽略的 target 目录中。
+# Store only public addresses here and keep build keypairs in the ignored target directory.
+ggboy_vault = "FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75"
+ggboy_lending = "8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H"
+
+[provider]
+# 默认使用本地验证器以及用户自己的本地钱包路径。
+# Default to the local validator and the user's local wallet path.
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"

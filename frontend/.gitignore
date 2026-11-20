@@ -1,0 +1,9 @@
+# 前端依赖与构建产物。
+# Frontend dependencies and build output.
+/node_modules/
+/dist/
+
+# Vite 的本机环境变量覆写。
+# Local environment overrides for Vite.
+/.env.local
+/.env.*.local

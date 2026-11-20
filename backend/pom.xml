@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.2</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>io.ggboy</groupId>
+    <artifactId>ggboy-backend</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>GGBOY Backend</name>
+
+    <modules>
+        <module>ggboy-common</module>
+        <module>ggboy-core</module>
+        <module>ggboy-app</module>
+    </modules>
+
+    <properties>
+        <!-- 使用 JDK 25 API 和字节码构建所有项目模块。
+             Compile all project modules against JDK 25 APIs and bytecode. -->
+        <java.version>25</java.version>
+        <!-- 使用兼容 Spring Boot 4 的 MyBatis-Plus Starter。
+             Use the MyBatis-Plus starter compatible with Spring Boot 4. -->
+        <mybatis-plus.version>3.5.18</mybatis-plus.version>
+    </properties>
+</project>

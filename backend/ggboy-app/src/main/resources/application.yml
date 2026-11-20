@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: ggboy-backend
+  datasource:
+    # JDBC 地址和用户名从环境变量读取，默认连接本地开发库。
+    # Read the JDBC URL and username from the environment, defaulting to a local development database.
+    url: "${GGBOY_DB_URL:jdbc:postgresql://localhost:5432/ggboy}"
+    username: "${GGBOY_DB_USER:ggboy}"
+    # 密码由启动环境提供，仓库不保存真实凭据。
+    # Supply the password at runtime and keep credentials out of version control.
+    password: "${GGBOY_DB_PASSWORD:}"
+  flyway:
+    # Flyway 在应用启动时加载版本化迁移。
+    # Flyway loads versioned migrations during application startup.
+    locations: classpath:db/migration
+
+mybatis-plus:
+  configuration:
+    # 读取完整行时按列名匹配 record 构造参数，避免调整 SELECT 的列顺序后发生错位。
+    # Bind record constructor arguments by column name so reordered full-row projections still map correctly.
+    arg-name-based-constructor-auto-mapping: true
+    # 对应 PostgreSQL 的 snake_case 列名与 Java 的 camelCase 参数名。
+    # Match PostgreSQL snake_case column names to Java camelCase parameter names.
+    map-underscore-to-camel-case: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 仅暴露基础健康检查。
+        # Expose only the basic health check.
+        include: health

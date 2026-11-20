@@ -1,0 +1,21 @@
+[workspace]
+# 两个可独立部署的程序共享依赖和构建配置。
+# Share dependencies and build settings across the two independently deployed programs.
+members = ["programs/ggboy_vault", "programs/ggboy_lending"]
+resolver = "2"
+
+[workspace.package]
+# 使用 Anchor 1.2.2 模板的 Rust 版次和最低编译器版本。
+# Match the Rust edition and minimum compiler version of the Anchor 1.2.2 template.
+edition = "2021"
+rust-version = "1.89.0"
+
+[workspace.dependencies]
+anchor-lang = "=1.2.2"
+
+[profile.release]
+# 发布构建保留整数溢出检查，为后续资金运算提供额外保护。
+# Keep integer overflow checks in release builds as an extra guard for asset arithmetic.
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
