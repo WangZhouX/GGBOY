@@ -4,9 +4,13 @@ import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.TableFieldInfo;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.toolkit.ReflectionKit;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.spring.service.IService;
+import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import io.ggboy.backend.entity.AssetMintDO;
 import io.ggboy.backend.entity.ChainEventAssetDO;
 import io.ggboy.backend.entity.ChainEventDO;
@@ -21,6 +25,7 @@ import io.ggboy.backend.entity.VaultDO;
 import io.ggboy.backend.entity.VaultPositionSnapshotDO;
 import io.ggboy.backend.entity.VaultSnapshotDO;
 import java.io.IOException;
+import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.file.Files;
@@ -28,8 +33,10 @@ import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
+import org.springframework.stereotype.Service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -38,6 +45,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** 验证持久化对象的框架映射，并对照版本库中的 SQL 草案逐列核验。 Verifies framework mappings and checks each column against the versioned SQL draft. */
 public class DataObjectMappingTest {
+
+    /** 已映射的持久化类型，每一项均有对应的表、Mapper 和 Service。 Published row types, each with a table, mapper and service. */
+    private static final List<Class<?>> ROW_TYPES = List.of(
+            ChainTransactionDO.class, ChainEventDO.class, ChainEventParticipantDO.class, ChainEventAssetDO.class,
+            IndexerCheckpointDO.class, AssetMintDO.class, VaultDO.class, LendingMarketDO.class,
+            VaultSnapshotDO.class, LendingMarketSnapshotDO.class, VaultPositionSnapshotDO.class,
+            LendingPositionSnapshotDO.class, RiskAlertDO.class);
 
     /** 草案中每张表先声明所有列，再声明主键。 The schema declares all columns of each table before its primary key. */
     private static final Pattern TABLE = Pattern.compile(
@@ -54,12 +68,8 @@ public class DataObjectMappingTest {
     public void mapsPublishedRowTypes() {
         // 已发布的持久化类型均应通过 MyBatis-Plus 的实际元数据初始化。
         // Initialize the actual MyBatis-Plus metadata for each published persistence type.
-        var rowTypes = List.of(ChainTransactionDO.class, ChainEventDO.class, ChainEventParticipantDO.class,
-                ChainEventAssetDO.class, IndexerCheckpointDO.class, AssetMintDO.class, VaultDO.class,
-                LendingMarketDO.class, VaultSnapshotDO.class, LendingMarketSnapshotDO.class,
-                VaultPositionSnapshotDO.class, LendingPositionSnapshotDO.class, RiskAlertDO.class);
         var assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "published-row-mapping-test");
-        for (var type : rowTypes) {
+        for (var type : ROW_TYPES) {
             // 表名去掉类名的 DO 后缀后转为下划线命名。
             // The table name uses snake case after removing the DO suffix from the class name.
             String name = type.getSimpleName();
@@ -81,6 +91,57 @@ public class DataObjectMappingTest {
             // Each table has at least two composite key columns excluded from entity-based updates.
             assertTrue(columns.stream().filter(field -> field.getUpdateStrategy() == FieldStrategy.NEVER).count() >= 2,
                     name);
+        }
+    }
+
+    /**
+     * 验证每个 DO 都有可扫描的公共 Mapper，并且 MyBatis-Plus 解析到对应的实体类型。
+     * Verifies that each DO has a scannable public mapper and that MyBatis-Plus resolves its row type.
+     *
+     * @throws ClassNotFoundException 约定包中缺少对应的 Mapper。 The mapper is absent from the designated package.
+     */
+    @Test
+    public void declaresMapperForEachRowType() throws ClassNotFoundException {
+        for (var rowType : ROW_TYPES) {
+            // 根据 DO 后缀推导 Mapper 名称，同一约定适用于所有已映射的表。
+            // Derive the mapper name from the DO suffix using the same convention for all tables.
+            String rowName = rowType.getSimpleName();
+            String mapperName = "io.ggboy.backend.mapper." + rowName.substring(0, rowName.length() - 2) + "Mapper";
+            Class<?> mapper = Class.forName(mapperName);
+            assertTrue(mapper.isInterface() && Modifier.isPublic(mapper.getModifiers()), mapperName);
+            assertTrue(mapper.isAnnotationPresent(Mapper.class), mapperName);
+            assertTrue(BaseMapper.class.isAssignableFrom(mapper), mapperName);
+            // 校验框架生成 SQL 时实际使用的泛型参数，防止接口绑定到另一张表。
+            // Check the generic argument used for SQL generation so a mapper cannot bind to a different table.
+            assertEquals(rowType, ReflectionKit.getSuperClassGenericType(mapper, BaseMapper.class, 0), mapperName);
+        }
+    }
+
+    /**
+     * 验证每个服务接口、Spring 实现和 Mapper 引用同一个持久化类型。
+     * Verifies that each service interface, Spring implementation and mapper reference the same row type.
+     *
+     * @throws ClassNotFoundException 缺少约定的服务、实现或 Mapper。 A designated service, implementation or mapper is missing.
+     */
+    @Test
+    public void bindsEachServiceToItsMapperAndRowType() throws ClassNotFoundException {
+        for (var rowType : ROW_TYPES) {
+            // 表的 DO、服务接口、实现与 Mapper 使用相同的业务名称。
+            // The DO, service interface, implementation and mapper for a table share the same business name.
+            String rowName = rowType.getSimpleName();
+            String name = rowName.substring(0, rowName.length() - 2);
+            Class<?> service = Class.forName("io.ggboy.backend.service." + name + "Service");
+            Class<?> impl = Class.forName("io.ggboy.backend.service.impl." + name + "ServiceImpl");
+            Class<?> mapper = Class.forName("io.ggboy.backend.mapper." + name + "Mapper");
+            assertTrue(service.isInterface() && IService.class.isAssignableFrom(service), name);
+            assertTrue(service.isAssignableFrom(impl) && ServiceImpl.class.isAssignableFrom(impl), name);
+            assertTrue(impl.isAnnotationPresent(Service.class), name);
+
+            // 核对框架使用的实体与 Mapper 泛型，防止某张表的服务误连到其他 Mapper。
+            // Check the framework's entity and mapper type arguments to catch a service bound to another mapper.
+            assertEquals(rowType, ReflectionKit.getSuperClassGenericType(service, IService.class, 0), name);
+            assertEquals(mapper, ReflectionKit.getSuperClassGenericType(impl, ServiceImpl.class, 0), name);
+            assertEquals(rowType, ReflectionKit.getSuperClassGenericType(impl, ServiceImpl.class, 1), name);
         }
     }
 

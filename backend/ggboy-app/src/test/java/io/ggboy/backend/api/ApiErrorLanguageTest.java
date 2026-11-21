@@ -1,6 +1,5 @@
 package io.ggboy.backend.api;
 
-import io.ggboy.backend.GgboyBackendApplication;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -10,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -33,7 +34,7 @@ class ApiErrorLanguageTest {
     void negotiatesEachErrorUsingTheRequestHeader() throws IOException, InterruptedException {
         // 仅启用测试端点，在临时环回端口加载真实 MVC 配置，跳过与错误响应无关的数据库启动流程。
         // Enable the test endpoint on an ephemeral loopback port with real MVC wiring and skip database startup.
-        try (var context = SpringApplication.run(GgboyBackendApplication.class,
+        try (var context = SpringApplication.run(HttpTestConfiguration.class,
                 "--spring.profiles.active=error-language-test", "--server.address=127.0.0.1", "--server.port=0",
                 "--spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                         + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration");
@@ -83,6 +84,15 @@ class ApiErrorLanguageTest {
         var error = JsonMapper.shared().readTree(response.body()).get("error");
         assertEquals("INVALID_REQUEST", error.get("code").asString());
         assertEquals(message, error.get("message").asString());
+    }
+
+    /**
+     * 引入生产的语言和错误配置以及测试控制器，在隔离的上下文中运行 MVC。
+     * Imports the production locale and error configurations with the probe controller in an isolated MVC context.
+     */
+    @EnableAutoConfiguration
+    @Import({ApiLocaleConfiguration.class, ApiRequestExceptionHandler.class, RequiredParameterController.class})
+    static class HttpTestConfiguration {
     }
 
     /** 仅在此测试的 profile 中注册请求入口。 Registers the probe endpoint only in this test's profile. */

@@ -7,9 +7,9 @@
 | 目录 | 职责 | 实现进度 |
 | --- | --- | --- |
 | [entity](io/ggboy/backend/entity/README.md) | 统一管理数据库持久化对象 | 已映射 13 张表、97 个字段 |
-| [controller](io/ggboy/backend/controller/README.md) | 接收业务 HTTP 请求并返回结果 | 已建目录，交易活动接口待开发 |
-| [service](io/ggboy/backend/service/README.md) | 编排业务用例、组织数据库事务 | 已建目录，交易活动服务待开发 |
-| [mapper](io/ggboy/backend/mapper/README.md) | 通过 MyBatis-Plus 读写 PostgreSQL | 已建目录，交易活动数据访问待开发 |
+| [controller](io/ggboy/backend/controller/README.md) | 交易活动、金库、借贷市场及风险提醒的 HTTP 入口 | 已建立 4 个控制器骨架，具体接口待开发 |
+| [service](io/ggboy/backend/service/README.md) | 提供单表服务，承载后续业务用例与事务边界 | 13 个基础接口及实现已建立，交易活动业务方法待开发 |
+| [mapper](io/ggboy/backend/mapper/README.md) | 通过 MyBatis-Plus 读写 PostgreSQL | 13 个基础 Mapper 已建立，业务查询待开发 |
 
 索引、金库、借贷查询和可选风险提醒的业务代码将分阶段接入。
 
