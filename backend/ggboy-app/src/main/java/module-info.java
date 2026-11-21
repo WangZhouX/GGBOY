@@ -11,7 +11,13 @@ module io.ggboy.app {
     requires org.mybatis;
     requires com.baomidou.mybatis.plus.core;
     requires com.baomidou.mybatis.plus.annotation;
+    // 金库快照和交易批次使用 MyBatis-Plus Page 和 PostgreSQL 分页方言。
+    // Vault snapshots and transaction batches use MyBatis-Plus Page and its PostgreSQL pagination dialect.
+    requires com.baomidou.mybatis.plus.extension;
     requires com.baomidou.mybatis.plus.spring;
+    // 控制器声明由 springdoc 读取的接口名称、分组及请求参数。
+    // Controllers declare API names, groups and request parameters read by springdoc.
+    requires io.swagger.v3.oas.annotations;
     requires spring.boot;
     requires spring.boot.autoconfigure;
     // 服务实例与事务代理使用 Spring 的反射、Bean 和 AOP 模块。
@@ -20,6 +26,9 @@ module io.ggboy.app {
     requires spring.beans;
     requires spring.aop;
     requires spring.context;
+    // 金库和活动查询用只读事务保持多表读取的一致性。
+    // Vault and activity queries use read-only transactions for consistent reads across tables.
+    requires spring.tx;
     requires spring.web;
     requires spring.webmvc;
 
@@ -38,6 +47,9 @@ module io.ggboy.app {
 
     // Spring 使用反射创建服务实例和事务代理。
     // Spring uses reflection to construct service instances and transactional proxies.
+    // 显式打开服务接口，供接口事务代理反射调用。
+    // Open the service interfaces for reflective invocation by transaction proxies.
+    opens io.ggboy.backend.service to spring.core, spring.aop;
     opens io.ggboy.backend.service.impl to spring.core, spring.beans, spring.aop;
 
     // 仅向持久化框架开放 DO，由其读取列注解并调用 record 的构造方法。

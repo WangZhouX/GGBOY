@@ -53,4 +53,34 @@ public record VaultSnapshotDO(
         @TableField("nav_raw") BigInteger navRaw,
         @TableField("total_shares_raw") BigInteger totalSharesRaw
 ) {
+
+    /**
+     * 提供 Lambda 查询使用的网络属性访问器，对应表中的 network。
+     * Exposes the network property for lambda queries against the network column.
+     *
+     * @return 网络的小写协议值。 Lowercase network wire identifier.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的金库地址访问器，对应 vault_address。
+     * Exposes the vault address property for lambda queries against vault_address.
+     *
+     * @return 金库账户公钥。 Public key of the vault account.
+     */
+    public String getVaultAddress() {
+        return vaultAddress;
+    }
+
+    /**
+     * 提供 Lambda 排序使用的观测 slot 访问器，对应数值列 slot。
+     * Exposes the observation slot for lambda ordering of the numeric slot column.
+     *
+     * @return 账户的最终确认观测 slot。 Finalized account observation slot.
+     */
+    public BigInteger getSlot() {
+        return slot;
+    }
 }

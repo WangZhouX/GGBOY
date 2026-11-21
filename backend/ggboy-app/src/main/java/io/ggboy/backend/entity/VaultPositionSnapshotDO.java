@@ -41,4 +41,44 @@ public record VaultPositionSnapshotDO(
         @TableField("position_value_raw") BigInteger positionValueRaw,
         @TableField("redeemable_raw") BigInteger redeemableRaw
 ) {
+
+    /**
+     * 提供 Lambda 查询使用的网络访问器，对应 network 列。
+     * Exposes the network property for Lambda queries against the network column.
+     *
+     * @return 网络的小写协议值。 Lowercase network wire value.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的金库地址访问器，对应 vault_address 列。
+     * Exposes the vault address property for Lambda queries against vault_address.
+     *
+     * @return 金库状态账户公钥。 Public key of the vault state account.
+     */
+    public String getVaultAddress() {
+        return vaultAddress;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的钱包地址访问器，对应 wallet_address 列。
+     * Exposes the wallet address property for Lambda queries against wallet_address.
+     *
+     * @return 持有份额的钱包公钥。 Public key of the wallet holding the shares.
+     */
+    public String getWalletAddress() {
+        return walletAddress;
+    }
+
+    /**
+     * 提供 Lambda 排序使用的观测 slot 访问器，对应数值列 slot。
+     * Exposes the observation slot for Lambda ordering on the numeric slot column.
+     *
+     * @return 钱包持仓的最终确认观测 slot。 Finalized observation slot for the wallet position.
+     */
+    public BigInteger getSlot() {
+        return slot;
+    }
 }

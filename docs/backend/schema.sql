@@ -126,21 +126,30 @@ CREATE TABLE lending_market (
     program_id varchar(44) NOT NULL,
     debt_mint varchar(44) NOT NULL,
     collateral_mint varchar(44) NOT NULL,
+    oracle_address varchar(44),
+    oracle_max_age_seconds integer,
     PRIMARY KEY (network, market_address),
     UNIQUE (network, market_address, debt_mint),
     FOREIGN KEY (network, debt_mint)
         REFERENCES asset_mint (network, mint_address),
     FOREIGN KEY (network, collateral_mint)
         REFERENCES asset_mint (network, mint_address),
-    CHECK (debt_mint <> collateral_mint)
+    CHECK (debt_mint <> collateral_mint),
+    -- 预言机账户和正数有效期需要同时配置。 / Configure the oracle account and positive maximum age together.
+    CONSTRAINT lending_market_oracle_configuration_ck CHECK (
+        (oracle_address IS NULL AND oracle_max_age_seconds IS NULL)
+        OR (oracle_address IS NOT NULL AND oracle_max_age_seconds IS NOT NULL AND oracle_max_age_seconds > 0)
+    )
 );
 
-COMMENT ON TABLE lending_market IS '链上借贷市场登记，一个市场绑定一种借款资产和一种抵押资产。 / Registry of on-chain lending markets, each with one debt asset and one collateral asset.';
+COMMENT ON TABLE lending_market IS '链上借贷市场登记，绑定借款资产、抵押资产及可选价格源配置。 / Registry of on-chain lending markets with their debt asset, collateral asset and optional price feed configuration.';
 COMMENT ON COLUMN lending_market.network IS 'Solana 网络，限 localnet 和 devnet。 / Solana network, either localnet or devnet.';
 COMMENT ON COLUMN lending_market.market_address IS '链上借贷市场状态账户地址。 / On-chain lending market state account address.';
 COMMENT ON COLUMN lending_market.program_id IS '拥有该市场状态账户的借贷程序 ID。 / Lending program ID that owns this market state account.';
 COMMENT ON COLUMN lending_market.debt_mint IS '借贷池供给、借款和还款使用的 Mint。 / Mint used for supply, borrowing and repayments in the market.';
 COMMENT ON COLUMN lending_market.collateral_mint IS '该市场支持的抵押资产 Mint。 / Collateral asset mint accepted by this market.';
+COMMENT ON COLUMN lending_market.oracle_address IS '链上市场配置的价格源账户地址，未配置时为空。 / Address of the price feed account configured by the on-chain market, null when unconfigured.';
+COMMENT ON COLUMN lending_market.oracle_max_age_seconds IS '允许的报价最大年龄（秒），未配置时为空。 / Maximum acceptable price age in seconds, null when unconfigured.';
 
 -- 组合外键同时校验金库与借贷市场使用相同计价资产。
 -- The composite foreign key also requires the vault and market to use the same quote asset.
@@ -224,14 +233,44 @@ CREATE TABLE lending_market_snapshot (
     utilization_bps integer NOT NULL CHECK (utilization_bps BETWEEN 0 AND 10000),
     borrow_ltv_bps integer NOT NULL CHECK (borrow_ltv_bps BETWEEN 0 AND 10000),
     liquidation_threshold_bps integer NOT NULL CHECK (liquidation_threshold_bps BETWEEN 1 AND 10000),
+    oracle_address varchar(44),
+    oracle_collateral_mint varchar(44),
+    oracle_debt_mint varchar(44),
+    oracle_price_numerator numeric(39,0),
+    oracle_price_denominator numeric(39,0),
+    oracle_slot numeric(20,0),
+    oracle_published_at timestamptz,
+    oracle_price_version varchar(64),
+    risk_batch_published boolean NOT NULL DEFAULT false,
     PRIMARY KEY (network, market_address, slot),
     FOREIGN KEY (network, market_address)
         REFERENCES lending_market (network, market_address),
     CHECK (available_to_borrow_raw <= cash_raw),
-    CHECK (borrow_ltv_bps < liquidation_threshold_bps)
+    CHECK (borrow_ltv_bps < liquidation_threshold_bps),
+    -- 有值时报价为正，发布时间和 slot 不晚于快照观测。 / When present, prices are positive and publication time and slot do not exceed the observation.
+    CONSTRAINT lending_market_snapshot_oracle_values_ck CHECK (
+        (oracle_price_numerator > 0 AND oracle_price_numerator <> 'NaN'::numeric)
+        AND (oracle_price_denominator > 0 AND oracle_price_denominator <> 'NaN'::numeric)
+        AND (oracle_slot BETWEEN 0 AND 18446744073709551615 AND oracle_slot <= slot)
+        AND (isfinite(oracle_published_at) AND oracle_published_at <= observed_at)
+        AND oracle_price_version ~ '^[0-9a-f]{64}$'
+    ),
+    -- 只在批次完成且报价字段齐全时标记已发布。 / Mark the batch published only when complete and all quote fields are present.
+    CONSTRAINT lending_market_snapshot_risk_publication_ck CHECK (
+        NOT risk_batch_published OR (
+            oracle_address IS NOT NULL
+            AND oracle_collateral_mint IS NOT NULL
+            AND oracle_debt_mint IS NOT NULL
+            AND oracle_price_numerator IS NOT NULL
+            AND oracle_price_denominator IS NOT NULL
+            AND oracle_slot IS NOT NULL
+            AND oracle_published_at IS NOT NULL
+            AND oracle_price_version IS NOT NULL
+        )
+    )
 );
 
-COMMENT ON TABLE lending_market_snapshot IS '借贷市场在某一最终确认观测 slot 的流动性、债务、利率和风险参数。 / Market liquidity, debt, rates and risk parameters at a finalized observation slot.';
+COMMENT ON TABLE lending_market_snapshot IS '借贷市场在某一最终确认观测 slot 的资金池状态、报价及风险批次信息。 / Market pool state, quote and risk batch information at a finalized observation slot.';
 COMMENT ON COLUMN lending_market_snapshot.network IS 'Solana 网络，限 localnet 和 devnet。 / Solana network, either localnet or devnet.';
 COMMENT ON COLUMN lending_market_snapshot.market_address IS '链上借贷市场状态账户地址。 / On-chain lending market state account address.';
 COMMENT ON COLUMN lending_market_snapshot.slot IS 'RPC 读取市场与计算输入所处的最终确认观测 slot。 / Finalized RPC observation slot of the market and calculation inputs.';
@@ -244,6 +283,15 @@ COMMENT ON COLUMN lending_market_snapshot.borrow_rate_bps IS '按基点表示的
 COMMENT ON COLUMN lending_market_snapshot.utilization_bps IS '按基点表示的资金利用率。 / Pool utilization in basis points.';
 COMMENT ON COLUMN lending_market_snapshot.borrow_ltv_bps IS '按基点表示的借款 LTV 上限。 / Maximum borrowing loan-to-value ratio in basis points.';
 COMMENT ON COLUMN lending_market_snapshot.liquidation_threshold_bps IS '按基点表示、用于计算健康度的清算阈值。 / Liquidation threshold used to calculate health, in basis points.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_address IS '读取原始报价的价格源账户地址。 / Price feed account address from which the original quote was read.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_collateral_mint IS '报价的抵押资产 Mint 地址。 / Collateral asset mint address in the quote.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_debt_mint IS '报价的债务资产 Mint 地址。 / Debt asset mint address in the quote.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_price_numerator IS '每整单位抵押资产所值整单位债务资产的报价分子。 / Numerator of the whole debt tokens per whole collateral token price ratio.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_price_denominator IS '每整单位抵押资产所值整单位债务资产的报价分母。 / Denominator of the whole debt tokens per whole collateral token price ratio.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_slot IS '预言机原始报价的链上发布 slot。 / On-chain publication slot of the original oracle quote.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_published_at IS '预言机原始报价的发布时间。 / Publication time of the original oracle quote.';
+COMMENT ON COLUMN lending_market_snapshot.oracle_price_version IS '该批次所用报价的 64 字符小写十六进制版本。 / The 64-character lowercase hexadecimal version of the quote used by this batch.';
+COMMENT ON COLUMN lending_market_snapshot.risk_batch_published IS '索引器已完整发布该 slot 的风险批次时为 true。 / True once the indexer publishes the complete risk batch for this slot.';
 
 CREATE TABLE vault_position_snapshot (
     network varchar(16) NOT NULL CHECK (network IN ('localnet', 'devnet')),
@@ -284,6 +332,7 @@ CREATE TABLE lending_position_snapshot (
     debt_raw numeric(39,0) NOT NULL CHECK (debt_raw >= 0 AND debt_raw <> 'NaN'::numeric),
     health_factor numeric(51,12) CHECK (health_factor >= 0 AND health_factor <> 'NaN'::numeric),
     is_liquidatable boolean,
+    oracle_price_version varchar(64),
     PRIMARY KEY (network, market_address, wallet_address, slot),
     FOREIGN KEY (network, market_address)
         REFERENCES lending_market (network, market_address),
@@ -296,7 +345,12 @@ CREATE TABLE lending_position_snapshot (
             )
         )
     ),
-    CHECK (oracle_slot <= slot)
+    CHECK (oracle_slot <= slot),
+    -- 记录报价版本时必须保留相应的历史预言机 slot。 / A price version requires the corresponding historical oracle slot.
+    CONSTRAINT lending_position_snapshot_oracle_version_ck CHECK (
+        oracle_price_version IS NULL
+        OR (oracle_slot IS NOT NULL AND oracle_price_version ~ '^[0-9a-f]{64}$')
+    )
 );
 
 COMMENT ON TABLE lending_position_snapshot IS '一个市场参与者在某一观测 slot 的供给、抵押、欠款和风险状态。 / Supply, collateral, debt and risk observed for one market participant at a given slot.';
@@ -312,6 +366,7 @@ COMMENT ON COLUMN lending_position_snapshot.collateral_raw IS '当前托管抵�
 COMMENT ON COLUMN lending_position_snapshot.debt_raw IS '当前计息后的未偿债务，单位为借款 Mint 最小单位。 / Current outstanding debt with accrued interest, in debt mint base units.';
 COMMENT ON COLUMN lending_position_snapshot.health_factor IS '无量纲健康度，展示精度为 12 位小数。无债务或需用的价格无效时为空。 / Dimensionless health factor displayed to 12 decimals. Null when debt is zero or a required price is unusable.';
 COMMENT ON COLUMN lending_position_snapshot.is_liquidatable IS '按完整精度评估的清算资格。无债务为 false，有债务但价格不可用时为空。 / Liquidation eligibility evaluated at full precision. False for zero debt and null if debt exists but its price input is unavailable.';
+COMMENT ON COLUMN lending_position_snapshot.oracle_price_version IS '计算该仓位健康度所用报价的 64 字符小写十六进制版本。旧仓位或无可用报价时为空。 / The 64-character lowercase hexadecimal version of the quote used for position health, null for legacy positions or when no usable quote exists.';
 
 -- 可选风险提示 / Optional phase 3 risk alerts
 
@@ -353,5 +408,12 @@ COMMENT ON INDEX chain_event_participant_wallet_idx IS '按任一业务参与钱
 CREATE INDEX risk_alert_wallet_feed_idx
     ON risk_alert (network, wallet_address, slot DESC, market_address, alert_type);
 COMMENT ON INDEX risk_alert_wallet_feed_idx IS '按网络和钱包读取风险命中历史。 / Read risk hits by network and wallet.';
+
+-- 固定市场风险观测 slot 后按健康度和钱包地址续页。
+-- Seek by health factor and wallet address within the observed market risk slot.
+CREATE INDEX lending_position_snapshot_liquidation_order_idx
+    ON lending_position_snapshot (network, market_address, slot, health_factor, wallet_address)
+    WHERE health_factor IS NOT NULL;
+COMMENT ON INDEX lending_position_snapshot_liquidation_order_idx IS '清算市场按观测 slot、健康度及钱包地址分页。 / Page liquidation market candidates by observation slot, health factor and wallet address.';
 
 COMMIT;

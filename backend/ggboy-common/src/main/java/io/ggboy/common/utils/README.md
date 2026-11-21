@@ -1,4 +1,4 @@
-# 公共数值工具
+# 公共工具
 
 跨模块工具类位于 `io.ggboy.common.utils` 包，类名统一以 `Util` 结尾。
 
@@ -11,3 +11,7 @@
 | `formatUint64(value)` | 校验范围并生成规范十进制文本，以便 API 在 JSON 字符串中传输完整精度 |
 
 例如 `"18446744073709551615"` 可精确往返。`"01"`、`"-1"`、`"1.0"` 和超出上界的文本均无效。
+
+[SolanaAddressUtil](SolanaAddressUtil.java) 的 `requirePublicKey(address, fieldName)` 校验钱包、账户和 Mint 地址是否为恰好编码 32 字节的 Base58 文本。调用方继续按业务需要核对网络与实际账户。
+
+同一工具的 `requireSignature(signature, fieldName)` 校验交易主签名是否为恰好编码 64 字节的 Base58 文本，用于交易活动的筛选与游标边界。

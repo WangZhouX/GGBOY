@@ -26,7 +26,7 @@
 mvn clean package
 ```
 
-构建会运行测试并生成三个模块的 JAR。用于启动的模块和第三方依赖位于 `ggboy-app/target/modules/` 与 `ggboy-app/target/lib/`，部署时保留两个目录。Java 使用 module path 加载项目模块，使用 classpath 加载含有重叠包等兼容性问题的第三方库。启动前准备 PostgreSQL 数据库和具备迁移权限的登录角色，并配置以下环境变量。
+构建会运行测试并生成三个模块的 JAR。用于启动的模块和第三方依赖位于 `ggboy-app/target/modules/` 与 `ggboy-app/target/lib/`，部署时保留两个目录。Java 使用 module path 加载项目模块。classpath 加载部分第三方库和独立的 Flyway 迁移资源 JAR，由 Flyway 从其中读取版本化 SQL。启动前准备 PostgreSQL 数据库和具备迁移权限的登录角色，并配置以下环境变量。
 
 | 变量 | 用途 | 默认值 |
 | --- | --- | --- |
@@ -47,6 +47,12 @@ curl --fail http://localhost:8080/actuator/health
 ```
 
 应用和 PostgreSQL 正常时，健康检查返回 `{"status":"UP"}`。
+
+## 在线接口文档
+
+后端启动后，在 [Swagger UI](http://localhost:8080/swagger-ui.html) 按「策略金库」「借贷市场」「交易活动」浏览接口的中文名称、用途、参数和响应模型。展开接口可以直接向当前后端发请求。供工具读取的 [OpenAPI JSON](http://localhost:8080/v3/api-docs) 与页面使用同一份文档。
+
+文档默认开启。将环境变量 `GGBOY_SWAGGER_ENABLED` 设为 `false` 可同时关闭 Swagger UI 和 OpenAPI 文档端点。打包后的 springdoc 与 Swagger UI 资源由后端启动命令中的 classpath 加载。
 
 ## 入口
 

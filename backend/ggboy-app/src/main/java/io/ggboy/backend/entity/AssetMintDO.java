@@ -29,4 +29,24 @@ public record AssetMintDO(
         @TableField("decimals") short decimals,
         @TableField("program_id") String programId
 ) {
+
+    /**
+     * 以 MyBatis-Plus Lambda 查询可识别的属性名读取网络标识。
+     * Exposes the network identifier as a property for MyBatis-Plus lambda queries.
+     *
+     * @return Solana 网络标识，取值为 localnet 或 devnet。 Solana network identifier, either localnet or devnet.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 以 MyBatis-Plus Lambda 查询可识别的属性名读取Mint 地址。
+     * Exposes the mint address as a property for MyBatis-Plus lambda queries.
+     *
+     * @return SPL Token Mint 的公钥。 Public key of the SPL Token mint.
+     */
+    public String getMintAddress() {
+        return mintAddress;
+    }
 }

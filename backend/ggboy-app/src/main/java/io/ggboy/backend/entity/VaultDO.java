@@ -35,4 +35,24 @@ public record VaultDO(
         @TableField("strategy_mint") String strategyMint,
         @TableField("lending_market_address") String lendingMarketAddress
 ) {
+
+    /**
+     * 以 MyBatis-Plus Lambda 查询可识别的属性名读取网络标识。
+     * Exposes the network identifier as a property for MyBatis-Plus lambda queries.
+     *
+     * @return Solana 网络标识，取值为 localnet 或 devnet。 Solana network identifier, either localnet or devnet.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 以 MyBatis-Plus Lambda 查询可识别的属性名读取金库地址。
+     * Exposes the vault address as a property for MyBatis-Plus lambda queries.
+     *
+     * @return 金库状态账户的公钥。 Public key of the vault state account.
+     */
+    public String getVaultAddress() {
+        return vaultAddress;
+    }
 }

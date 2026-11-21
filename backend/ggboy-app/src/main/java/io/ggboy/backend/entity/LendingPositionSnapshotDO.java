@@ -38,6 +38,8 @@ import java.time.OffsetDateTime;
  *        Dimensionless health factor displayed to 12 decimals. Null when debt is zero or a required price is unusable.
  * @param isLiquidatable 按完整精度评估的清算资格。无债务为 false，有债务但价格不可用时为空。
  *        Liquidation eligibility evaluated at full precision. False for zero debt and null if debt exists but its price input is unavailable.
+ * @param oraclePriceVersion 计算该仓位健康度所用报价的 64 字符小写十六进制版本。
+ *        The 64-character lowercase hexadecimal version of the quote used to calculate position health.
  */
 @TableName("lending_position_snapshot")
 public record LendingPositionSnapshotDO(
@@ -52,6 +54,58 @@ public record LendingPositionSnapshotDO(
         @TableField("collateral_raw") BigInteger collateralRaw,
         @TableField("debt_raw") BigInteger debtRaw,
         @TableField("health_factor") BigDecimal healthFactor,
-        @TableField("is_liquidatable") Boolean isLiquidatable
+        @TableField("is_liquidatable") Boolean isLiquidatable,
+        @TableField("oracle_price_version") String oraclePriceVersion
 ) {
+
+
+    /**
+     * 提供 Lambda 查询使用的网络访问器，对应 network 列。
+     * Exposes the network property for Lambda queries against the network column.
+     *
+     * @return 网络的小写协议值。 Lowercase network wire value.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的市场地址访问器，对应 market_address 列。
+     * Exposes the market address property for Lambda queries against market_address.
+     *
+     * @return 市场状态账户公钥。 Public key of the market state account.
+     */
+    public String getMarketAddress() {
+        return marketAddress;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的钱包地址访问器，对应 wallet_address 列。
+     * Exposes the wallet address property for Lambda queries against wallet_address.
+     *
+     * @return 仓位持有人的钱包公钥。 Public key of the wallet that owns the position.
+     */
+    public String getWalletAddress() {
+        return walletAddress;
+    }
+
+    /**
+     * 提供 Lambda 排序使用的观测 slot 访问器，对应数值列 slot。
+     * Exposes the observation slot for Lambda ordering on the numeric slot column.
+     *
+     * @return 钱包仓位的最终确认观测 slot。 Finalized observation slot for the wallet position.
+     */
+    public BigInteger getSlot() {
+        return slot;
+    }
+
+    /**
+     * 提供 Lambda 筛选、排序和分页使用的健康度访问器，对应 health_factor 列。
+     * Exposes the health factor for Lambda filtering, ordering and pagination against the health_factor column.
+     *
+     * @return 健康度，缺少估值时为空。 Health factor, null when valuation is unavailable.
+     */
+    public BigDecimal getHealthFactor() {
+        return healthFactor;
+    }
 }

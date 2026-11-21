@@ -14,10 +14,25 @@
     <description>Solana DeFi indexer and query API</description>
 
     <properties>
-        <!-- 持久化和服务 API 编译与运行使用同一批具名模块。
-             Use the same named persistence and service API modules for compilation and execution. -->
-        <mybatis-module-artifacts>mybatis,mybatis-plus-core,mybatis-plus-annotation,mybatis-plus-extension,mybatis-plus-spring</mybatis-module-artifacts>
+        <!-- MyBatis API 和 Swagger 注解在编译与运行时均使用模块路径。
+             Keep the MyBatis API and Swagger annotations on the module path at compile time and runtime. -->
+        <library-module-artifacts>mybatis,mybatis-plus-core,mybatis-plus-annotation,mybatis-plus-extension,mybatis-plus-spring,swagger-annotations</library-module-artifacts>
+        <!-- springdoc 与 Swagger 注解版本由同一个 BOM 管理。
+             Manage springdoc and Swagger annotations with the same BOM. -->
+        <springdoc.version>3.2.1</springdoc.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-bom</artifactId>
+                <version>${springdoc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -37,6 +52,17 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- 控制器使用 OpenAPI 注解，运行时由 springdoc 扫描并提供 Swagger UI。
+             Controllers use OpenAPI annotations. At runtime, springdoc scans them and serves Swagger UI. -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <!-- Mapper 接口与注解参与模块编译，Starter 负责运行期自动配置。
              Compile against mapper interfaces and annotations; load starter auto-configuration at runtime. -->
@@ -86,9 +112,31 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <configuration>
-                    <outputDirectory>${project.build.directory}/modules</outputDirectory>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/modules</outputDirectory>
+                            <excludes>
+                                <exclude>db/migration/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <!-- Flyway 通过类路径读取 SQL。独立的资源 JAR 避免 JPMS 限制或重复发现同一次迁移。
+                         Flyway reads SQL from the classpath. A resource-only JAR avoids JPMS access restrictions and duplicate discovery. -->
+                    <execution>
+                        <id>stage-flyway-migrations</id>
+                        <phase>package</phase>
+                        <goals><goal>jar</goal></goals>
+                        <configuration>
+                            <classifier>migrations</classifier>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includes>
+                                <include>db/migration/*.sql</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -107,24 +155,24 @@
                         </configuration>
                     </execution>
                     <execution>
-                        <id>stage-mybatis-modules</id>
+                        <id>stage-library-modules</id>
                         <phase>package</phase>
                         <goals><goal>copy-dependencies</goal></goals>
                         <configuration>
                             <includeScope>runtime</includeScope>
-                            <includeArtifactIds>${mybatis-module-artifacts}</includeArtifactIds>
+                            <includeArtifactIds>${library-module-artifacts}</includeArtifactIds>
                             <outputDirectory>${project.build.directory}/modules</outputDirectory>
                         </configuration>
                     </execution>
-                    <!-- MyBatis-Plus 的自动配置包存在包名重叠，使用 classpath 加载。
-                         Load the MyBatis-Plus auto-configuration jars with overlapping packages on the classpath. -->
+                    <!-- MyBatis-Plus 自动配置包、springdoc 和 Swagger UI 静态资源从 classpath 加载。
+                         Load MyBatis-Plus auto-configuration, springdoc and Swagger UI assets from the classpath. -->
                     <execution>
                         <id>stage-class-path</id>
                         <phase>package</phase>
                         <goals><goal>copy-dependencies</goal></goals>
                         <configuration>
                             <includeScope>runtime</includeScope>
-                            <excludeArtifactIds>${mybatis-module-artifacts}</excludeArtifactIds>
+                            <excludeArtifactIds>${library-module-artifacts}</excludeArtifactIds>
                             <excludeGroupIds>io.ggboy,org.springframework,org.springframework.boot</excludeGroupIds>
                             <outputDirectory>${project.build.directory}/lib</outputDirectory>
                         </configuration>

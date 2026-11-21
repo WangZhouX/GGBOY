@@ -24,4 +24,6 @@
 - 这 13 张表都使用复合主键。按主键读、改、删时，在 Mapper 的条件中逐一指定组成列。例如定位一条交易需要同时传入 `network` 和 `signature`。单 ID 方法无法表达这个条件。每个键列的 `@TableField` 使用 `updateStrategy = FieldStrategy.NEVER`，让 MyBatis-Plus 在根据实体生成 `SET` 时跳过该列。
 - 两种零小数位的 `numeric` 均映射为 `BigInteger`，覆盖 Solana u64 及 39 位累计量。`health_factor` 用 `BigDecimal` 保留 12 位小数，`timestamptz` 用 `OffsetDateTime` 表示时刻。可空的 `is_liquidatable` 使用 `Boolean`，区分“尚无法判定”和“不可清算”。
 
+[ChainEventKey](ChainEventKey.java) 是活动查询在单个网络内使用的组合键，由交易签名和事件序号组成。参与方和资产批量查询还需显式传入网络。
+
 各 DO 的类注释列出完整主键与字段含义。业务库的 Flyway 建表迁移按各业务阶段实施。

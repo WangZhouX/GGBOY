@@ -35,4 +35,54 @@ public record ChainEventDO(
         @TableField("event_type") String eventType,
         @TableField("subject_address") String subjectAddress
 ) {
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code network}。
+     * Exposes the property for Lambda queries against the {@code network} column.
+     *
+     * @return 网络的小写协议值。 Lowercase network wire identifier.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code signature}。
+     * Exposes the property for Lambda queries against the {@code signature} column.
+     *
+     * @return Base58 编码的交易主签名。 Primary transaction signature in Base58.
+     */
+    public String getSignature() {
+        return signature;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code event_index}。
+     * Exposes the property for Lambda queries against the {@code event_index} column.
+     *
+     * @return 事件在交易日志中的零基稳定序号。 Stable zero-based index of the event in the transaction log.
+     */
+    public int getEventIndex() {
+        return eventIndex;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code subject_address}。
+     * Exposes the property for Lambda queries against the {@code subject_address} column.
+     *
+     * @return 本事件主体的状态账户公钥。 State account public key for the event subject.
+     */
+    public String getSubjectAddress() {
+        return subjectAddress;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code event_type}。
+     * Exposes the property for Lambda queries against the {@code event_type} column.
+     *
+     * @return 索引器使用的业务事件类型代码。 Business event type code used by the indexer.
+     */
+    public String getEventType() {
+        return eventType;
+    }
 }

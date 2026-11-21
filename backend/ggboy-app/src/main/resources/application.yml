@@ -23,6 +23,31 @@ mybatis-plus:
     # Match PostgreSQL snake_case column names to Java camelCase parameter names.
     map-underscore-to-camel-case: true
 
+ggboy:
+  vault:
+    # 金库及钱包持仓快照在观测超过此秒数时标记为过期。
+    # Mark vault and wallet position snapshots stale after this number of seconds from observation.
+    snapshot-stale-after-seconds: "${GGBOY_VAULT_SNAPSHOT_STALE_AFTER_SECONDS:60}"
+  lending:
+    # 借贷市场和钱包仓位快照的最大新鲜时长，单位为秒，须为正数。
+    # Maximum fresh age for lending market and wallet snapshots in seconds, required to be positive.
+    snapshot-stale-after-seconds: "${GGBOY_LENDING_SNAPSHOT_STALE_AFTER_SECONDS:60}"
+
+springdoc:
+  # 文档仅收录业务 HTTP 接口。
+  # Include only business HTTP interfaces in the API documentation.
+  paths-to-match: /api/v1/**
+  api-docs:
+    # 使用同一个开关控制 OpenAPI 文档及 Swagger UI。
+    # Use one switch for both the OpenAPI document and Swagger UI.
+    enabled: "${GGBOY_SWAGGER_ENABLED:true}"
+  swagger-ui:
+    enabled: "${GGBOY_SWAGGER_ENABLED:true}"
+    # 支持在页面中筛选业务分组，默认打开本项目的接口文档。
+    # Enable filtering by business group and open this project's API documentation by default.
+    filter: true
+    disable-swagger-default-url: true
+
 management:
   endpoints:
     web:

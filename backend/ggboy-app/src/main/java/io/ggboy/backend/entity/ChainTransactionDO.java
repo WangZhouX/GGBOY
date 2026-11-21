@@ -32,4 +32,34 @@ public record ChainTransactionDO(
         @TableField("block_time") OffsetDateTime blockTime,
         @TableField("indexed_at") OffsetDateTime indexedAt
 ) {
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code network}。
+     * Exposes the property for Lambda queries against the {@code network} column.
+     *
+     * @return 网络的小写协议值。 Lowercase network wire identifier.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code signature}。
+     * Exposes the property for Lambda queries against the {@code signature} column.
+     *
+     * @return Base58 编码的交易主签名。 Primary transaction signature in Base58.
+     */
+    public String getSignature() {
+        return signature;
+    }
+
+    /**
+     * 提供 Lambda 查询使用的属性访问器，对应 {@code slot}。
+     * Exposes the property for Lambda queries against the {@code slot} column.
+     *
+     * @return 交易实际落入的链上 slot。 On-chain slot in which the transaction landed.
+     */
+    public BigInteger getSlot() {
+        return slot;
+    }
 }
