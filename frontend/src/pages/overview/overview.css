@@ -1,0 +1,50 @@
+/* 资产总览的入口链接在宽屏排成两列，窄屏排成一列。 */
+/* Lay out overview links in two columns on wide screens and one on narrow screens. */
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.module-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+  min-height: 7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  padding: 1.1rem 1.2rem;
+}
+
+.module-link:hover {
+  border-color: #406554;
+  background: #14221b;
+}
+
+.module-link h2 {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 650;
+}
+
+.module-link p {
+  margin: 0.42rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.module-arrow {
+  color: var(--accent);
+}
+
+@media (max-width: 46rem) {
+  .module-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .module-link {
+    min-height: 0;
+  }
+}

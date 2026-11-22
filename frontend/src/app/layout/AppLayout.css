@@ -1,0 +1,134 @@
+/* 键盘用户可以直接进入正文，避开每页重复的导航。 */
+/* Let keyboard users bypass the repeated navigation and reach the content. */
+.skip-link {
+  position: fixed;
+  z-index: 1;
+  top: 0.75rem;
+  left: 0.75rem;
+  transform: translateY(-180%);
+  border-radius: 0.45rem;
+  background: var(--accent);
+  color: #0b100e;
+  padding: 0.65rem 1rem;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* 桌面使用双栏，正文通过网格保持独立的宽度。 */
+/* Use two columns on desktop and give the content its own grid width. */
+.app-shell {
+  display: grid;
+  grid-template-columns: 13.25rem minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  padding: 1.5rem 1rem;
+  border-right: 1px solid var(--border);
+  background: #0e1512;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.75rem;
+  margin: 0 0.45rem 1.8rem;
+  font-size: 1.4rem;
+  font-weight: 750;
+  letter-spacing: -0.045em;
+}
+
+.brand-mark {
+  display: inline-grid;
+  width: 1.9rem;
+  height: 1.9rem;
+  place-items: center;
+  border-radius: 0.45rem;
+  background: var(--accent);
+}
+
+.brand-mark::after {
+  width: 0.68rem;
+  height: 0.68rem;
+  transform: rotate(-25deg);
+  border: 0.13rem solid #132c1f;
+  border-radius: 0.15rem;
+  box-shadow: 0.16rem 0.14rem 0 #519e77;
+  content: "";
+}
+
+.primary-nav {
+  display: grid;
+  gap: 0.25rem;
+}
+
+/* 语言与网络总在同一位置，切换时保留当前业务路由。 */
+/* Keep language and network controls in a consistent position across routes. */
+.topbar {
+  display: flex;
+  min-height: 4.2rem;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.8rem 1.15rem;
+  padding: 0.65rem clamp(1rem, 4vw, 3rem);
+  border-bottom: 1px solid var(--border);
+  background: #0d1511;
+}
+
+.topbar-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.topbar-field select {
+  min-height: 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--surface);
+  color: #edf6f1;
+  padding-inline: 0.5rem;
+}
+
+/* 在全站外层布局约束正文宽度和留白。 */
+/* Constrain the content width and spacing in the application shell. */
+.main-content {
+  max-width: 82rem;
+  margin-inline: auto;
+  padding: clamp(2.4rem, 6vw, 4.6rem) clamp(1rem, 6vw, 5rem);
+}
+
+/* 窄屏把侧栏转成页首导航，同时保留所有入口。 */
+/* Place navigation at the top on narrow screens and keep every destination available. */
+@media (max-width: 46rem) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    padding: 0.75rem 1rem 0.7rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand {
+    margin: 0 0 0.45rem;
+  }
+
+  .primary-nav {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .topbar {
+    min-height: 3.5rem;
+    justify-content: flex-start;
+  }
+}

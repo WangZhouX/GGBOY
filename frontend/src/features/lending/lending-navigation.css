@@ -1,0 +1,9 @@
+/* 子导航在可用宽度内换行，保持入口可见。 */
+/* Wrap the lending navigation to keep every destination visible. */
+.sub-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding-block: 0.45rem;
+  border-block: 1px solid var(--border);
+}

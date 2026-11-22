@@ -1,0 +1,67 @@
+/* 延续 GGBOY 原型的深色背景、薄荷色交互和留白。 */
+/* Carry over the GGBOY prototype's dark surfaces, mint accents, and spacing. */
+:root {
+  color-scheme: dark;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  line-height: 1.55;
+  color: #edf6f1;
+  background: #0b100e;
+  --surface: #111a16;
+  --border: #263831;
+  --muted: #a2b5ac;
+  --accent: #81f5bc;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 0;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+/* 主导航和业务子导航沿用同一套点击区域与选中状态。 */
+/* Share target sizing and selected states across primary and feature navigation. */
+.nav-link {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  padding: 0.52rem 0.73rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 550;
+}
+
+.nav-link:hover {
+  background: #14221b;
+  color: #edf6f1;
+}
+
+.nav-link[aria-current="page"] {
+  border-color: #2d493a;
+  background: #15251c;
+  color: var(--accent);
+}
+
+.text-link {
+  color: var(--accent);
+  text-underline-offset: 0.25em;
+  text-decoration: underline;
+}

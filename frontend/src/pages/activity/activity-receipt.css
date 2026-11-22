@@ -1,0 +1,25 @@
+/* 链上签名较长，可以换行以避免撑开窄屏回执。 */
+/* Wrap long onchain signatures to keep the receipt within a narrow viewport. */
+.receipt-identifiers {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+  gap: 0.7rem 1rem;
+  margin: 0 0 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.receipt-identifiers dt {
+  color: var(--muted);
+}
+
+.receipt-identifiers dd {
+  margin: 0;
+}
+
+.receipt-signature {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  overflow-wrap: anywhere;
+}

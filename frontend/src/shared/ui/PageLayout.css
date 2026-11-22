@@ -1,0 +1,25 @@
+/* 各路由共享正文宽度及标题排版。 */
+/* Share content width and heading typography across routes. */
+.page-layout {
+  max-width: 64rem;
+}
+
+.page-heading {
+  margin-bottom: 1.9rem;
+}
+
+.page-heading h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4.6vw, 3.5rem);
+  font-weight: 720;
+  line-height: 1.13;
+  letter-spacing: -0.034em;
+  overflow-wrap: anywhere;
+}
+
+.page-heading p {
+  max-width: 39rem;
+  margin: 0.7rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
