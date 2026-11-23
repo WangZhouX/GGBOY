@@ -1,0 +1,3 @@
+# 忽略已安装的本地脚本依赖。
+# Ignore installed local script dependencies.
+/node_modules/

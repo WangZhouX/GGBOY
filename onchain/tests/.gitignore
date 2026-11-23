@@ -1,0 +1,3 @@
+# 忽略本地验收的 npm 依赖。
+# Ignore npm dependencies installed for local verification.
+/node_modules/

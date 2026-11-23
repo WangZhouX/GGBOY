@@ -10,6 +10,11 @@ solana_version = "4.1.2"
 ggboy_vault = "FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75"
 ggboy_lending = "8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H"
 
+[programs.devnet]
+# Devnet 目前只部署了策略金库，地址可在链上核对。
+# The strategy vault is the only program deployed on Devnet so far. Its address is verifiable on-chain.
+ggboy_vault = "FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75"
+
 [provider]
 # 默认使用本地验证器以及用户自己的本地钱包路径。
 # Default to the local validator and the user's local wallet path.

@@ -35,7 +35,7 @@ flowchart LR
 | 层 | 技术栈 | 职责 |
 | --- | --- | --- |
 | 前端 | React、TypeScript、Vite、Solana RPC 客户端、Anchor IDL、Phantom | 构造并预览交易，由发起方钱包签名，提交后跟踪确认状态。展示金库净值、资产配置、当前可赎回额、借贷仓位、健康度和交易历史。 |
-| 后端 | **JDK 25**、Spring Boot 4.x、Spring Web、Maven、PostgreSQL、MyBatis-Plus、Flyway、Solana JSON-RPC/WebSocket | 索引账户与交易，提供历史、净值快照、市场和仓位查询，以及风险提示。MyBatis-Plus 负责数据访问，Flyway 管理数据库迁移。 |
+| 后端 | **JDK 25**、Spring Boot 4.x、Spring Web、Maven、PostgreSQL、MyBatis-Plus、Flyway、OpenAPI / Swagger UI、Solana JSON-RPC/WebSocket | 索引账户与交易，提供历史、净值快照、市场和仓位查询，以及风险提示。MyBatis-Plus 负责数据访问，Flyway 管理数据库迁移。 |
 | 链上 | Rust、Anchor、SPL Token、PDA、CPI | 策略金库与借贷市场分别管理各自的资产和状态。测试预言机提供可控价格，测试兑换程序执行调仓。 |
 
 余额、份额、债务和交易是否达成均以链上状态为准。后端承担读取和索引，签名密钥由钱包持有。 [Spring Boot 兼容性](https://docs.spring.io/spring-boot/system-requirements.html) · [Solana CPI](https://solana.com/docs/core/cpi)
@@ -51,11 +51,13 @@ flowchart LR
 - **现金赎回**：首版以 `mockUSDC` 支付。金库先使用闲置现金，需要时在同一交易通过 CPI 从借贷池提取。策略资产按价格计入净值，换回 `mockUSDC` 后才增加可赎回现金。
 
 ```text
-用户份额价值 = 用户份额 × 金库净值 ÷ 金库总份额
-当前可赎回额 = min(用户份额价值, 金库现金 + 金库从借贷池当前可提取额)
+用户份额价值 = floor(用户份额 × 金库净值 ÷ 金库总份额)
+当前可支付资金 = 金库现金 + 金库从借贷池当前可提取额
+安全可赎回份额上限 = min(用户份额, floor(当前可支付资金 × 金库总份额 ÷ 金库净值))
+当前可赎回额 = floor(安全可赎回份额上限 × 金库净值 ÷ 金库总份额)
 ```
 
-借贷池当前可提取额受金库出借仓位价值、池内可用现金和提取限额约束。用户提交要赎回的份额数量。现金不足时整笔交易回滚，用户可改填较少份额。 [Solana 交易原子性](https://solana.com/docs/core/transactions)
+上式适用于金库净值和总份额均大于零的情况。到账金额舍入为零时，可赎回份额上限也为零。借贷池当前可提取额受金库出借仓位价值、池内可用现金和提取限额约束。用户提交要赎回的份额数量。现金不足时整笔交易回滚，用户可改填较少份额。 [Solana 交易原子性](https://solana.com/docs/core/transactions)
 
 ### 抵押借贷市场
 
