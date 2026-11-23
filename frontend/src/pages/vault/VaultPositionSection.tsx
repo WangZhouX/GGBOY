@@ -17,6 +17,20 @@ interface VaultPositionSectionProps {
   isVaultListPending: boolean;
   /** 无可用列表时区分加载中与请求失败。 Distinguishes loading from failure when no vault list is available. */
   isVaultListError: boolean;
+  /** 已支持读链的 Devnet 仓位由页面提供；其他金库仍使用后端索引。 The page supplies the supported Devnet position; other vaults use the backend index. */
+  livePosition?: LiveVaultPosition;
+}
+
+/** 钱包份额区所用的实时查询结果和刷新操作。 Live position result and refresh control used by the wallet section. */
+interface LiveVaultPosition {
+  /** 用当前钱包和金库同一次读取推导的仓位。 Position computed from the same wallet and vault read. */
+  snapshot: VaultPositionSnapshot | undefined;
+  /** 首次读链、读链错误与后台刷新状态。 Initial read, chain error, and background refresh states. */
+  isPending: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  /** 重新从 Devnet 读取当前钱包与金库。 Read the current wallet and vault from Devnet again. */
+  refresh(): Promise<unknown>;
 }
 
 /** 已采集的仓位与选中金库的资产信息。 An observed position and the selected vault's asset metadata. */
@@ -41,6 +55,10 @@ function VaultPositionDetails({ snapshot, vault }: VaultPositionDetailsProps) {
   const observationTime = new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium', timeStyle: 'medium', timeZone: 'UTC',
   }).format(new Date(snapshot.observedAt));
+  /** 用金额标题区分上次记录的可赎回估算。 Identify a previous redemption estimate in the amount label. */
+  const redeemableLabel = snapshot.freshness === 'STALE'
+    ? t('vaultPosition.previousRedeemableEstimate')
+    : t('vaultPosition.redeemableEstimate');
   /** 只有两种估值都可用时才判断是否只能兑现部分份额价值。 Compare the payout with the value only when both amounts are known. */
   const showRedemptionLimit = snapshot.positionValueRaw !== null
     && snapshot.redeemableRaw !== null
@@ -66,8 +84,7 @@ function VaultPositionDetails({ snapshot, vault }: VaultPositionDetailsProps) {
   return (
     <div className="vault-position__details">
       <p className="vault-position__observation">
-        <time dateTime={snapshot.observedAt}>{t('vaultOverview.observedAt', { time: observationTime })}</time>
-        {snapshot.freshness === 'STALE' && <span>{t('vaultOverview.stale')}</span>}
+        <time dateTime={snapshot.observedAt}>{t('vaultOverview.updatedAt', { time: observationTime })}</time>
       </p>
       <dl className="vault-position__metrics">
         <div>
@@ -79,7 +96,7 @@ function VaultPositionDetails({ snapshot, vault }: VaultPositionDetailsProps) {
           <dd>{displayAmount(snapshot.positionValueRaw, vault.quoteAsset)}</dd>
         </div>
         <div>
-          <dt>{t('vaultPosition.redeemableNow')}</dt>
+          <dt>{redeemableLabel}</dt>
           <dd>{displayAmount(snapshot.redeemableRaw, vault.quoteAsset)}</dd>
         </div>
       </dl>
@@ -99,7 +116,7 @@ function VaultPositionDetails({ snapshot, vault }: VaultPositionDetailsProps) {
  *
  * @param props 当前网络、选中金库及公开列表请求状态。 Network, selected vault, and public list request status.
  */
-export function VaultPositionSection({ network, vault, isVaultListPending, isVaultListError }: VaultPositionSectionProps) {
+export function VaultPositionSection({ network, vault, isVaultListPending, isVaultListError, livePosition }: VaultPositionSectionProps) {
   /** 仓位区使用当前界面的语言。 Use the selected language for position content. */
   const { t } = useTranslation();
   /** 由全站 Phantom 连接状态提供公钥，断开时为空。 Public key from the shared Phantom connection, or null if disconnected. */
@@ -110,23 +127,29 @@ export function VaultPositionSection({ network, vault, isVaultListPending, isVau
   const canQuery = walletAddress !== null && vaultAddress !== null;
 
   /** 仓位数据和请求状态供下面的加载、空快照、错误和数据显示。 Position and query state feed the loading, empty snapshot, error, and success views. */
-  const { data, isPending, isError, isFetching, refetch } = useQuery({
+  const indexedPosition = useQuery({
     // 每个网络、金库和钱包分别缓存。切换任何一项时不沿用上一份仓位。
     // Cache each network, vault, and wallet separately so switches never reuse another position.
     queryKey: ['vault-position', network, vaultAddress, walletAddress],
     // skipToken 暂停请求，同时让 Hook 可以在每次渲染时调用。
     // skipToken disables the request while allowing the hook to run on every render.
-    queryFn: canQuery
+    queryFn: canQuery && livePosition === undefined
       ? ({ signal }) => getVaultPosition({ network, address: vaultAddress, wallet: walletAddress }, signal)
       : skipToken,
   });
 
+  /** 当 Devnet 读链可用时使用实时仓位，其他情况展示索引返回值。 Use live position for the supported Devnet vault and indexed values elsewhere. */
+  const snapshot = livePosition ? livePosition.snapshot : indexedPosition.data?.snapshot;
+  /** 跟随当前数据来源的请求状态。 Follow the request state from the active data source. */
+  const { isPending, isError, isFetching } = livePosition ?? indexedPosition;
+
   /**
-   * 点击刷新或重试时重查当前仓位。
-   * Refetch the current position on refresh or retry.
+   * 点击刷新或重试时重查当前仓位的数据来源。
+   * Refetch the active position source on refresh or retry.
    */
   function refreshPosition() {
-    void refetch();
+    if (livePosition) void livePosition.refresh();
+    else void indexedPosition.refetch();
   }
 
   return (
@@ -148,15 +171,15 @@ export function VaultPositionSection({ network, vault, isVaultListPending, isVau
       {canQuery && isPending && <p className="vault-position__status" role="status">{t('vaultPosition.loading')}</p>}
       {canQuery && isError && (
         <p className="vault-position__status vault-position__status--error" role="alert">
-          {t(data?.snapshot ? 'vaultPosition.refreshError' : 'vaultPosition.error')}
+          {t(snapshot ? 'vaultPosition.refreshError' : livePosition ? 'vaultPosition.chainError' : 'vaultPosition.error')}
         </p>
       )}
-      {canQuery && !isError && data?.snapshot === null && (
+      {canQuery && !isError && snapshot === null && (
         <p className="vault-position__status" role="status">{t('vaultPosition.awaitingSnapshot')}</p>
       )}
       {/* 只有查询成功拿到快照时才展示数值。 */}
       {/* Render values only after a query has returned a snapshot. */}
-      {canQuery && vault && data?.snapshot && <VaultPositionDetails snapshot={data.snapshot} vault={vault} />}
+      {canQuery && vault && snapshot && <VaultPositionDetails snapshot={snapshot} vault={vault} />}
     </section>
   );
 }

@@ -1,0 +1,739 @@
+{
+  "address": "FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75",
+  "metadata": {
+    "name": "ggboy_vault",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "GGBOY strategy vault"
+  },
+  "docs": [
+    "策略金库的 Anchor 指令入口。",
+    "Anchor instruction entry points for the GGBOY strategy vault."
+  ],
+  "instructions": [
+    {
+      "name": "deposit",
+      "docs": [
+        "将投资者的结算资产转入金库，按存入前的净值铸造份额。",
+        "Transfer the investor's settlement asset into custody and mint shares at the pre-deposit NAV.",
+        "",
+        "`context` 包含签名的投资者、已配置的金库账户和投资者的代币账户。",
+        "`context` contains the signing investor, configured vault accounts, and investor token accounts.",
+        "`assets_in` 是 mockUSDC 最小单位数，`min_shares_out` 是 GG-V 最小单位数，两者均须为正。",
+        "`assets_in` is in mockUSDC base units and `min_shares_out` is in GG-V base units. Both must be positive.",
+        "成功时转账、铸造并记录成交事件。任何校验或代币操作失败时，整笔存入回滚。",
+        "Success transfers funds, mints shares, and emits a receipt event. Failed checks or token operations revert the deposit."
+      ],
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "investor",
+          "docs": [
+            "授权扣款且持有接收份额账户的投资者签名人。",
+            "Investor signer authorizing the debit and owning the share destination."
+          ],
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "已初始化的金库 PDA，绑定本笔交易可使用的资产、托管账户和份额 Mint。",
+            "Initialized vault PDA binding the asset, custody account, and share mint used in this deposit."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "配置中的 mockUSDC Mint，为转账提供绑定地址及小数位数。",
+            "Configured mockUSDC mint supplying the bound address and decimals for the transfer."
+          ],
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "金库控制的结算资产账户，存入前余额用于报价，存入后接收资金。",
+            "Vault-controlled settlement account whose pre-deposit balance prices the new shares and receives the funds."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "share_mint",
+          "docs": [
+            "金库拥有铸造权的 GG-V Mint，读取操作前总供给并增加实际铸造量。",
+            "GG-V mint authorized by the vault, supplying the prior total supply and recording newly minted shares."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "investor_asset",
+          "docs": [
+            "已存在并由投资者拥有的 mockUSDC 扣款账户。",
+            "Existing investor-owned mockUSDC source account."
+          ],
+          "writable": true
+        },
+        {
+          "name": "investor_shares",
+          "docs": [
+            "已存在并由投资者拥有的 GG-V 到账账户。",
+            "Existing investor-owned GG-V destination account."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "执行实际转账与铸造的经典 SPL Token 程序。",
+            "Classic SPL Token program executing the transfer and mint."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "assets_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_shares_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_vault",
+      "docs": [
+        "由程序升级权限持有者创建唯一金库，并把托管和份额铸造权授予金库 PDA。",
+        "Create the singleton vault as the program upgrade authority and assign custody and minting to its PDA.",
+        "",
+        "`context` 包含管理员签名、六位小数的结算 Mint 和待创建的账户。",
+        "`context` contains the administrator signature, the six-decimal settlement mint, and the new accounts.",
+        "成功时三个账户同时建立。权限、资产或地址校验失败会回滚整个初始化。",
+        "All three accounts are created together. Permission, asset, or address validation failures revert initialization."
+      ],
+      "discriminator": [
+        48,
+        191,
+        163,
+        44,
+        71,
+        129,
+        63,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "administrator",
+          "docs": [
+            "管理员签名并支付三个新账户的免租金余额，单位为 lamports。",
+            "Administrator signs and funds the rent-exempt balance of all three new accounts, in lamports."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_program",
+          "docs": [
+            "当前部署的金库程序，Anchor 校验其地址和可执行状态。",
+            "The deployed vault program, with its address and executable status checked by Anchor."
+          ],
+          "address": "FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "从当前程序的 ProgramData 读取升级权限，防止借用其他程序的权限。",
+            "Read upgrade authority from this program's ProgramData to bind initialization to this deployment."
+          ]
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "管理员选定的经典 SPL 结算 Mint。Anchor 校验归属及初始化状态。",
+            "Classic SPL settlement mint selected by the administrator. Anchor checks its owner and initialized state."
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "金库状态和代币操作的授权地址。单次创建防止覆盖已有配置。",
+            "Vault state and token authority. One-time creation protects the existing configuration."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "新建的空现金账户，绑定结算 Mint 并由金库 PDA 授权。",
+            "New empty cash account bound to the settlement mint and controlled by the vault PDA."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "share_mint",
+          "docs": [
+            "新建的六位小数份额 Mint。初始供给为零，无冻结权限。",
+            "New six-decimal share mint with zero initial supply and no freeze authority."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  97,
+                  114,
+                  101,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "执行托管账户及份额 Mint 初始化的经典 SPL Token 程序。",
+            "Classic SPL Token program that initializes the custody account and share mint."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "为三个新账户分配链上空间及免租金余额的系统程序。",
+            "System program that allocates space and rent-exempt balances for the new accounts."
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "ping",
+      "docs": [
+        "验证脚手架指令可以调用，返回成功且不读写链上账户。",
+        "Confirm the scaffold instruction is callable and return success without accessing on-chain accounts.",
+        "",
+        "`_context` 是 Anchor 传入的指令上下文，本指令无需读取其中的数据。",
+        "`_context` is the Anchor instruction context. This instruction does not read it."
+      ],
+      "discriminator": [
+        173,
+        0,
+        94,
+        236,
+        73,
+        133,
+        225,
+        153
+      ],
+      "accounts": [],
+      "args": []
+    },
+    {
+      "name": "redeem",
+      "docs": [
+        "按赎回前的净值销毁投资者份额，并从纯现金金库支付结算资产。",
+        "Burn investor shares at the pre-redemption NAV and pay the settlement asset from cash custody.",
+        "",
+        "`context` 包含投资者签名、已配置的金库账户和投资者的代币账户。",
+        "`context` contains the investor signer, configured vault accounts, and investor token accounts.",
+        "`shares_in` 是 GG-V 最小单位数，`min_assets_out` 是 mockUSDC 最小单位数，两者均须为正。",
+        "`shares_in` is in GG-V base units and `min_assets_out` is in mockUSDC base units. Both must be positive.",
+        "销毁、支付及成交记录在同一笔交易执行。任一代币操作失败时回滚赎回。",
+        "The burn, payment, and receipt occur in one transaction. Either token operation failing reverts the redemption."
+      ],
+      "discriminator": [
+        184,
+        12,
+        86,
+        149,
+        70,
+        196,
+        97,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "investor",
+          "docs": [
+            "授权销毁自己的份额并拥有结算资产收款账户的投资者签名人。",
+            "Investor signer authorizing the burn and owning the settlement destination."
+          ],
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "已初始化的金库 PDA，限制两种 Mint 和托管账户为初始化时绑定的地址。",
+            "Initialized vault PDA restricting both mints and custody to the bound addresses."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "金库配置的 mockUSDC Mint，支付时按其链上精度检查转账。",
+            "Configured mockUSDC mint whose on-chain decimals are checked during payment."
+          ],
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "金库 PDA 控制的现金账户，赎回前的余额是定价和支付上限的依据。",
+            "Vault-controlled cash account whose prior balance prices and caps the payout."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "share_mint",
+          "docs": [
+            "金库 PDA 具有铸造权限的 GG-V Mint，读取原总量并扣除被销毁的份额。",
+            "GG-V mint under vault mint authority, read before burning and debited by the burn."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "investor_asset",
+          "docs": [
+            "已存在并由投资者拥有的 mockUSDC 收款账户。",
+            "Existing investor-owned mockUSDC payout account."
+          ],
+          "writable": true
+        },
+        {
+          "name": "investor_shares",
+          "docs": [
+            "已存在并由投资者拥有的 GG-V 份额来源账户。",
+            "Existing investor-owned GG-V source account for the burn."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "执行份额销毁和结算资产转账的经典 SPL Token 程序。",
+            "Classic SPL Token program executing the share burn and settlement transfer."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "shares_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_assets_out",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Vault",
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "VaultDeposit",
+      "discriminator": [
+        4,
+        248,
+        234,
+        163,
+        99,
+        238,
+        140,
+        45
+      ]
+    },
+    {
+      "name": "VaultRedeem",
+      "discriminator": [
+        8,
+        32,
+        148,
+        149,
+        45,
+        237,
+        82,
+        148
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidProgramData",
+      "msg": "ProgramData does not match the vault program"
+    },
+    {
+      "code": 6001,
+      "name": "UnauthorizedAdministrator",
+      "msg": "Only the vault program upgrade authority can initialize the vault"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidAssetDecimals",
+      "msg": "The settlement mint must have six decimals"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidDepositAmount",
+      "msg": "Deposit amount must be greater than zero"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidMinimumSharesOut",
+      "msg": "Minimum shares out must be greater than zero"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidVaultPricingState",
+      "msg": "Vault cash and share supply are inconsistent for deposit pricing"
+    },
+    {
+      "code": 6006,
+      "name": "DepositSharesOverflow",
+      "msg": "Calculated share amount exceeds the token amount range"
+    },
+    {
+      "code": 6007,
+      "name": "ZeroSharesOut",
+      "msg": "Deposit rounds down to zero shares"
+    },
+    {
+      "code": 6008,
+      "name": "MinimumSharesOutNotMet",
+      "msg": "Calculated share output is below the minimum"
+    },
+    {
+      "code": 6009,
+      "name": "InsufficientDepositBalance",
+      "msg": "Insufficient settlement asset balance for the deposit"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidRedeemAmount",
+      "msg": "Redemption shares must be greater than zero"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidMinimumAssetsOut",
+      "msg": "Minimum assets out must be greater than zero"
+    },
+    {
+      "code": 6012,
+      "name": "InsufficientRedeemShares",
+      "msg": "Insufficient shares in the redemption source account"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidRedemptionPricingState",
+      "msg": "Share supply cannot support redemption pricing"
+    },
+    {
+      "code": 6014,
+      "name": "ZeroAssetsOut",
+      "msg": "Redemption rounds down to zero settlement assets"
+    },
+    {
+      "code": 6015,
+      "name": "InsufficientVaultCash",
+      "msg": "Vault cash is insufficient for redemption"
+    },
+    {
+      "code": 6016,
+      "name": "MinimumAssetsOutNotMet",
+      "msg": "Calculated redemption payout is below the minimum"
+    }
+  ],
+  "types": [
+    {
+      "name": "Vault",
+      "docs": [
+        "记录单个金库的管理员、资产账户绑定和授权 PDA 参数。",
+        "Stores the singleton vault administrator, asset account bindings, and authority PDA parameter."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "administrator",
+            "docs": [
+              "初始化时签名的管理员钱包公钥。",
+              "Public key of the administrator who signed initialization."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "docs": [
+              "初始化时绑定的六位小数结算资产 Mint 公钥。",
+              "Public key of the six-decimal settlement mint bound during initialization."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "cash_vault",
+            "docs": [
+              "金库 PDA 控制的现金托管账户公钥。",
+              "Public key of the cash custody account controlled by the vault PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "share_mint",
+            "docs": [
+              "金库 PDA 独占铸造权的 GG-V 份额 Mint 公钥。",
+              "Public key of the GG-V mint whose mint authority is the vault PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Anchor 派生的规范 bump，后续用于授权金库 PDA 的代币操作。",
+              "Canonical bump derived by Anchor for future vault PDA token operations."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultDeposit",
+      "docs": [
+        "成功存入后供交易索引器读取的实际成交数据。",
+        "Executed deposit details for the transaction indexer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "docs": [
+              "处理存入的金库 PDA 公钥。",
+              "Public key of the vault PDA processing the deposit."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "investor",
+            "docs": [
+              "签名并收取份额的投资者公钥。",
+              "Public key of the investor who signed and received shares."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "docs": [
+              "实际转入的结算资产 Mint 公钥。",
+              "Public key of the settlement mint transferred into the vault."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "share_mint",
+            "docs": [
+              "实际铸造的 GG-V 份额 Mint 公钥。",
+              "Public key of the GG-V share mint issued by the deposit."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "assets_in",
+            "docs": [
+              "实际转入金库的 mockUSDC 最小单位数。",
+              "Number of mockUSDC base units transferred into custody."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "shares_out",
+            "docs": [
+              "实际到账的 GG-V 最小单位数。",
+              "Number of GG-V base units minted to the investor."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultRedeem",
+      "docs": [
+        "成功赎回的实际销毁和到账数据，供交易索引器读取。",
+        "Executed burn and payout details for the transaction indexer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "docs": [
+              "处理赎回的金库 PDA 公钥。",
+              "Public key of the vault PDA processing the redemption."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "investor",
+            "docs": [
+              "签名、销毁份额并收款的投资者公钥。",
+              "Public key of the investor who signed, burned shares, and received payment."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "docs": [
+              "实际付出的 mockUSDC Mint 公钥。",
+              "Public key of the mockUSDC mint paid out."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "share_mint",
+            "docs": [
+              "实际被销毁的 GG-V Mint 公钥。",
+              "Public key of the GG-V mint whose shares were burned."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "shares_in",
+            "docs": [
+              "已销毁的 GG-V 最小单位数。",
+              "Number of GG-V base units burned."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "assets_out",
+            "docs": [
+              "到账的 mockUSDC 最小单位数。",
+              "Number of mockUSDC base units paid out."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 /* 资产总览的入口链接在宽屏排成两列，窄屏排成一列。 */
-/* Lay out overview links in two columns on wide screens and one on narrow screens. */
+/* Lay out portfolio overview links in two columns on wide screens and one on narrow screens. */
 .module-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

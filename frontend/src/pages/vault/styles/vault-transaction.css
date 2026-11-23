@@ -1,0 +1,147 @@
+/* 金库交易表单与只读指标分开。 */
+/* Keep vault transaction forms separate from read-only metrics. */
+.vault-transaction {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2.15rem;
+}
+
+.vault-transaction h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 690;
+}
+
+.vault-transaction__form,
+.vault-transaction__notice {
+  margin: 0;
+  padding: 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+}
+
+.vault-transaction__form {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.vault-transaction__field,
+.vault-transaction__quote {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+/* 余额可用时提供「全部」，输入框缩小后仍可在窄屏并排展示。 */
+/* Keep the Max button next to an amount input that can shrink on narrow screens. */
+.vault-transaction__input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.vault-transaction__input-row input,
+.vault-transaction__max,
+.vault-transaction__submit {
+  min-height: 2.65rem;
+  border-radius: 0.45rem;
+  font: inherit;
+}
+
+.vault-transaction__input-row input,
+.vault-transaction__max {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.vault-transaction__input-row input {
+  min-width: 0;
+  padding: 0.45rem 0.75rem;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.vault-transaction__input-row input[aria-invalid='true'] {
+  border-color: #a26764;
+}
+
+.vault-transaction__max {
+  padding: 0.35rem 0.7rem;
+  color: var(--accent);
+}
+
+.vault-transaction__submit {
+  justify-self: start;
+  border: 1px solid transparent;
+  padding: 0.45rem 1rem;
+  background: var(--accent);
+  color: #0c2118;
+  font-weight: 670;
+}
+
+.vault-transaction__form button:enabled {
+  cursor: pointer;
+}
+
+.vault-transaction__form button:disabled {
+  opacity: 0.55;
+}
+
+.vault-transaction__notice,
+.vault-transaction__hint,
+.vault-transaction__error,
+.vault-transaction__feedback {
+  font-size: 0.875rem;
+}
+
+.vault-transaction__notice,
+.vault-transaction__hint,
+.vault-transaction__quote dt {
+  color: var(--muted);
+}
+
+.vault-transaction__error {
+  color: #ffb7b7;
+}
+
+.vault-transaction__hint,
+.vault-transaction__error,
+.vault-transaction__feedback p {
+  margin: 0;
+}
+
+.vault-transaction__quote {
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+/* 金额保留代币精度，空间不足时允许值完整换行。 */
+/* Preserve token precision and let long values wrap when space is limited. */
+.vault-transaction__quote dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0.7rem 1rem;
+  margin: 0;
+}
+
+.vault-transaction__quote dd {
+  margin: 0.15rem 0 0;
+  font-weight: 660;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.vault-transaction__feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.8rem;
+}
+
+.vault-transaction__feedback a {
+  color: var(--accent);
+}

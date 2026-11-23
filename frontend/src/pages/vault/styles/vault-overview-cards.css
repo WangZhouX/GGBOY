@@ -1,5 +1,5 @@
-/* 金库概况中的名称、完整地址与快照状态可在窄屏换行。 */
-/* Let the vault overview's name, full address, and snapshot status wrap on narrow screens. */
+/* 金库概况中的名称、完整地址与更新时间可在窄屏换行。 */
+/* Let the vault overview's name, full address, and update time wrap on narrow screens. */
 .vault-overview-entry {
   padding-top: 1.4rem;
   border-top: 1px solid var(--border);
@@ -36,26 +36,6 @@
   margin: 0.3rem 0 0;
   font-family: "SFMono-Regular", Consolas, monospace;
   overflow-wrap: anywhere;
-}
-
-.vault-overview-observation {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 0.65rem;
-}
-
-.vault-overview-freshness {
-  border: 1px solid #355845;
-  border-radius: 0.4rem;
-  padding: 0.12rem 0.45rem;
-  color: var(--accent);
-  font-weight: 650;
-}
-
-.vault-overview-freshness[data-freshness="STALE"] {
-  border-color: #675134;
-  color: #efbc84;
 }
 
 .vault-overview-awaiting {

@@ -4,6 +4,10 @@
 
 本地联调时，在安装 Phantom 的浏览器中通过 `localhost` 或 `127.0.0.1` 打开前端，点击「连接 Phantom」并在钱包中确认。部署页面通过 HTTPS 提供钱包接入。钱包连接提供公开地址，查询所在网络由 GGBOY 顶栏的网络选择器决定。 [Phantom 浏览器接入说明](https://docs.phantom.com/solana/detecting-the-provider)
 
-Solana RPC、Anchor IDL 与交易预览和提交后续也放在这里。业务模块将使用当前网络的公开配置选择 RPC、程序 ID 和 Mint。用户钱包负责签名。
+连接期间，顶栏提示在 Phantom 解锁和确认，也可以点击「取消等待」。页面等待最多 60 秒，取消或超时后可重新发起连接，旧请求迟到的结果会被忽略。授权窗口由 Phantom 管理，若仍有待处理的弹窗，需要在 Phantom 中关闭或完成它。
+
+[getDevnetSolBalance.ts](getDevnetSolBalance.ts) 通过 Solana 公开 Devnet RPC 的 `getBalance` 查询已确认的 SOL 余额。请求只使用公开钱包地址，返回精确的 `bigint` lamports，1 SOL 等于 10 亿 lamports。调用方可传入取消信号。 [Solana `getBalance` 文档](https://solana.com/docs/rpc/http/getbalance)
+
+[vault](vault/README.md) 使用公开部署配置和 Anchor IDL 读取 Devnet 金库或构造存入和赎回指令。Phantom 适配层确认当前账户后请求签名和广播，金库客户端根据签名检查交易结果。[browserBuffer.ts](browserBuffer.ts) 在应用初始化时提供 SPL Token 编解码所需的浏览器 Buffer 实现。
 
 业务页面的快照、活动和回执通过 [HTTP 客户端](../shared/api/README.md) 读取。钱包配置、链上交易和后端索引各由对应模块处理。

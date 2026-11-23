@@ -96,10 +96,11 @@
   padding-inline: 0.5rem;
 }
 
-/* 紧凑显示地址与操作，连接错误在同一区域换行。 */
-/* Keep the address and action compact and wrap connection errors below them. */
+/* 紧凑显示地址与操作，授权提示和连接错误在同一区域换行。 */
+/* Keep the address and actions compact and wrap approval help and errors below them. */
 .topbar-wallet {
   display: flex;
+  min-width: 0;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.35rem 0.6rem;
@@ -131,9 +132,24 @@
   cursor: wait;
 }
 
+.topbar-wallet__button--secondary {
+  border-color: var(--border);
+  background: transparent;
+  color: #edf6f1;
+}
+
+.topbar-wallet__help,
 .topbar-wallet__error {
   flex-basis: 100%;
   margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.topbar-wallet__help {
+  color: var(--muted);
+}
+
+.topbar-wallet__error {
   color: #ffc3b8;
 }
 

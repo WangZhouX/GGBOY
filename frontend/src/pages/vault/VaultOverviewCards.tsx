@@ -102,6 +102,10 @@ function VaultSnapshotCards({ snapshot, quoteAsset, shareAsset }: VaultSnapshotC
   // 支付上限仅计入同一快照中的闲置现金和可取回资金，保持整数精度。
   // Use only cash and lending withdrawals from the same snapshot, retaining integer precision.
   const paymentLimitRaw = (BigInt(snapshot.cashRaw) + BigInt(snapshot.lendingWithdrawableRaw)).toString();
+  /** 数据仍是上次读取的结果时，用标题明确区分赎回资金估算。 Label redemption funding as a previous estimate when it comes from an older read. */
+  const fundingTitle = snapshot.freshness === 'STALE'
+    ? t('vaultOverview.previousRedemptionFunding')
+    : t('vaultOverview.redemptionFunding');
 
   return (
     <div className="vault-overview-grid">
@@ -121,7 +125,7 @@ function VaultSnapshotCards({ snapshot, quoteAsset, shareAsset }: VaultSnapshotC
         </dl>
       </section>
       <section className="vault-overview-panel vault-overview-panel--funding">
-        <h4>{t('vaultOverview.redemptionFunding')}</h4>
+        <h4>{fundingTitle}</h4>
         <dl>
           <VaultMetric label={t('vaultOverview.redeemCash')} value={quoteAmount(snapshot.cashRaw)} />
           <VaultMetric
@@ -136,8 +140,8 @@ function VaultSnapshotCards({ snapshot, quoteAsset, shareAsset }: VaultSnapshotC
 }
 
 /**
- * 显示一个金库的身份、UTC 观测时间、新鲜度和概况明细。
- * Show one vault's identity, UTC observation time, freshness, and overview metrics.
+ * 显示一个金库的身份、上次更新时间和概况明细。
+ * Show one vault's identity, last update time, and overview metrics.
  *
  * @param props 金库列表中的一项。 An entry from the vault list.
  */
@@ -164,14 +168,9 @@ export function VaultOverviewCards({ vault }: VaultOverviewCardsProps) {
           <p className="vault-overview-address">{vault.address}</p>
         </div>
         {snapshot !== null && (
-          <div className="vault-overview-observation">
-            <span className="vault-overview-freshness" data-freshness={snapshot.freshness}>
-              {t(snapshot.freshness === 'FRESH' ? 'vaultOverview.fresh' : 'vaultOverview.stale')}
-            </span>
-            <time dateTime={snapshot.observedAt}>
-              {t('vaultOverview.observedAt', { time: observationTime })}
-            </time>
-          </div>
+          <time className="vault-overview-observation" dateTime={snapshot.observedAt}>
+            {t('vaultOverview.updatedAt', { time: observationTime })}
+          </time>
         )}
       </header>
       {snapshot === null ? (

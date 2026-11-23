@@ -1,6 +1,6 @@
 # GGBOY 前端
 
-使用 React、TypeScript、Vite、React Router、TanStack Query 和 i18next。当前骨架包含响应式导航、借贷子路由、交易回执路由、中英文切换、网络选择和公共 HTTP 请求层。[策略金库页](src/pages/vault/README.md)已接入公开概况、钱包份额查询和每份净值走势，页面顶部可通过 [Phantom](src/solana/README.md) 连接钱包。
+使用 React、TypeScript、Vite、React Router、TanStack Query 和 i18next。当前骨架包含响应式导航、借贷子路由、交易回执路由、中英文切换、网络选择和公共 HTTP 请求层。[策略金库页](src/pages/vault/README.md)已接入公开概况、钱包份额查询、每份净值走势及 Devnet 存赎，页面顶部可通过 [Phantom](src/solana/README.md) 连接钱包。
 
 ## 本地开发
 
@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-打开终端显示的本地地址。可以切换中英文、选择 Localnet 或 Devnet，再依次打开金库、借贷和交易活动入口。
+打开终端显示的本地地址。可以切换中英文、选择 Localnet 或 Devnet，再依次打开金库、借贷和交易活动入口。用安装了 Phantom 的浏览器打开前端，选择 Devnet 并连接钱包后，[资产总览](src/pages/overview/README.md) 通过 Solana 公共 RPC 显示该账户的 SOL 余额。
 
 ## 源码结构与阅读顺序
 

@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
+import type { SendOptions, Transaction } from '@solana/web3.js';
+import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 
 /** Phantom 公钥序列化为 Base58 地址。 Phantom public key serializable as a Base58 address. */
 type PhantomPublicKey = { toString(): string };
@@ -7,7 +8,26 @@ type PhantomPublicKey = { toString(): string };
 type PendingAction = 'connecting' | 'disconnecting';
 
 /** 对应 wallet 翻译组的连接错误键。 Connection error keys in the wallet translation group. */
-type WalletError = 'unavailable' | 'connectError' | 'rejected' | 'disconnectError';
+type WalletError = 'unavailable' | 'unsupportedOrigin' | 'connectError' | 'rejected' | 'approvalPending'
+  | 'connectTimeout' | 'connectCancelled' | 'disconnectError';
+
+/** 用户交易失败的本地化提示类型。 Localizable wallet transaction failure types. */
+type WalletTransactionErrorCode = 'rejected' | 'walletChanged' | 'approvalPending' | 'submissionFailed';
+
+/** 交易调用暴露的可识别错误，保留原因供本地诊断。 Recognizable failure from a transaction call, retaining its cause for local diagnostics. */
+export class WalletTransactionError extends Error {
+  /**
+   * 用稳定的错误码让页面选择提示。
+   * Allow the page to select a message using a stable error code.
+   *
+   * @param code 钱包拒绝、账户变化、等待审批或提交异常。 Wallet rejection, account change, pending approval, or a submission error.
+   * @param cause Phantom 的原始错误（如有）。 Original Phantom error, if present.
+   */
+  constructor(readonly code: WalletTransactionErrorCode, cause?: unknown) {
+    super(code, { cause });
+    this.name = 'WalletTransactionError';
+  }
+}
 
 /** 页面关心的 Phantom 钱包事件。 Phantom wallet events used by the app. */
 interface PhantomEvents {
@@ -21,6 +41,10 @@ interface PhantomEvents {
 interface PhantomProvider {
   /** Phantom 用于识别自身连接入口的标记。 Flag Phantom exposes to identify its own provider. */
   readonly isPhantom: boolean;
+  /** Phantom 正在授权本站使用的实际账户，可能独立于 React 渲染更新。 Account currently shared with the site, which may update independently of React. */
+  readonly publicKey?: PhantomPublicKey | null;
+  /** 钱包签名并广播已构造的 Solana 交易，返回公开交易签名。 Sign and broadcast a built Solana transaction, returning its public signature. */
+  signAndSendTransaction?(transaction: Transaction, options?: SendOptions): Promise<{ signature: string }>;
   /** 请求当前账户的公钥。 Request access to the current account's public key. */
   connect(): Promise<{ publicKey: PhantomPublicKey }>;
   /** 断开本站与 Phantom 的连接。 Disconnect this site from Phantom. */
@@ -43,12 +67,19 @@ interface PhantomWallet {
   error: WalletError | null;
   /** 从用户操作请求 Phantom 连接。 Request a Phantom connection from a user action. */
   connect(): Promise<void>;
+  /** 停止页面等待授权，钱包弹窗仍由 Phantom 管理。 Stop waiting in the page; Phantom owns its approval window. */
+  cancelConnect(): void;
   /** 结束当前钱包连接。 End the current wallet connection. */
   disconnect(): Promise<void>;
+  /** 用预览所绑定的账户签名并广播，最低读上下文为已确认 slot。 Sign and broadcast with the quoted account and confirmed context slot floor. */
+  signAndSendTransaction(transaction: Transaction, expectedWallet: string, minContextSlot: number): Promise<string>;
 }
 
 /** 共享钱包状态的 React Context。 React context for the shared wallet state. */
 const PhantomWalletContext = createContext<PhantomWallet | null>(null);
+
+/** 页面等待 Phantom 授权的最长时间，以毫秒计。 Maximum time the page waits for Phantom approval, in milliseconds. */
+const connectionTimeoutMs = 60_000;
 
 /**
  * 从页面取得 Phantom 官方注入的 Solana 接口，没有时返回空。
@@ -56,19 +87,26 @@ const PhantomWalletContext = createContext<PhantomWallet | null>(null);
  */
 function getPhantomProvider(): PhantomProvider | null {
   /** 浏览器扩展加到 window 上的可选属性。 Optional property added to window by the extension. */
-  const { phantom } = window as Window & { phantom?: { solana?: PhantomProvider } };
-  return phantom?.solana?.isPhantom ? phantom.solana : null;
+  const { phantom, solana } = window as Window & { phantom?: { solana?: PhantomProvider }; solana?: PhantomProvider };
+  // 优先使用官方命名空间，兼容旧注入入口时也要核实 Phantom 标记。
+  // Prefer the official namespace and verify the Phantom flag on the legacy injection as well.
+  if (phantom?.solana?.isPhantom) return phantom.solana;
+  return solana?.isPhantom ? solana : null;
 }
 
 /**
- * 将 Phantom 错误转换成可本地化的提示键，4001 表示用户取消授权。
- * Map Phantom errors to translatable UI keys; 4001 means the user rejected the request.
+ * 将钱包返回或页面主动结束等待的原因转换成可本地化的提示键。
+ * Map an error from Phantom or a stopped page wait to a localizable message key.
  * @param error 扩展抛出的错误。 Error thrown by the extension.
  */
 function getConnectError(error: unknown): WalletError {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 4001
-    ? 'rejected'
-    : 'connectError';
+  if (error === 'connectTimeout' || error === 'connectCancelled') return error;
+
+  /** Phantom 错误码，4001 表示拒绝，-32002 表示已有审批窗口占用资源时可以返回的错误。 Phantom error code: 4001 is rejection, and an occupied approval window can cause -32002. */
+  const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+  if (code === 4001) return 'rejected';
+  if (code === -32002) return 'approvalPending';
+  return 'connectError';
 }
 
 /**
@@ -85,6 +123,18 @@ export function PhantomWalletProvider({ children }: PropsWithChildren) {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   /** 最近一次钱包操作的错误。 Error from the latest wallet action. */
   const [error, setError] = useState<WalletError | null>(null);
+  /** 当前授权尝试的页面等待控制器，同时防止快速重复点击。 Controller for the current page wait, also preventing rapid duplicate clicks. */
+  const pendingApproval = useRef<AbortController | null>(null);
+  /** 钱包弹窗完成前共享同一交易锁，切页时也阻止再开签名窗口。 Shared transaction lock that prevents opening another signing prompt even if the page changes. */
+  const transactionApproval = useRef(false);
+
+  /** Provider 卸载时清理页面等待，忽略钱包之后返回的结果。 Stop the page wait on unmount and ignore later wallet results. */
+  useEffect(() => () => {
+    /** 将要取消的授权尝试。 Approval attempt to stop. */
+    const approval = pendingApproval.current;
+    pendingApproval.current = null;
+    approval?.abort('connectCancelled');
+  }, []);
 
   /**
    * 订阅 Phantom 的账户与断开事件，并在 Provider 卸载时清理。
@@ -105,6 +155,7 @@ export function PhantomWalletProvider({ children }: PropsWithChildren) {
 
     /** 清除已断开的公钥。 Clear the disconnected public key. */
     function handleDisconnect() {
+      setActiveProvider(null);
       setWalletAddress(null);
       setError(null);
     }
@@ -121,29 +172,53 @@ export function PhantomWalletProvider({ children }: PropsWithChildren) {
     };
   }, [activeProvider]);
 
-  /** 调用 Phantom 请求钱包公钥，并将结果提供给业务页面。 Ask Phantom for the wallet public key and expose the result to business pages. */
+  /** 请求钱包公钥，限定页面等待时间，并且只采纳当前尝试的结果。 Request a wallet public key, bound the page wait, and accept only the current attempt's result. */
   async function connect() {
-    if (pendingAction) return;
+    if (pendingAction || pendingApproval.current) return;
 
     /** 用户点击连接时取得扩展接口。 Read the injected provider when the user clicks Connect. */
     const provider = getPhantomProvider();
     if (!provider) {
-      setError('unavailable');
+      /** 本地联调用 Phantom 支持的回环地址，部署使用 HTTPS。 Local development uses Phantom-supported loopback addresses and deployments use HTTPS. */
+      const { protocol, hostname } = window.location;
+      setError(protocol === 'https:' || hostname === 'localhost' || hostname === '127.0.0.1' ? 'unavailable' : 'unsupportedOrigin');
       return;
     }
 
-    setActiveProvider(provider);
+    /** 当前点击对应的等待凭据及超时定时器。 Wait controller and timer for this click. */
+    const approval = new AbortController();
+    pendingApproval.current = approval;
+    const timeout = window.setTimeout(() => approval.abort('connectTimeout'), connectionTimeoutMs);
+    /** 页面取消只中断本地等待。钱包是否关闭弹窗仍由 Phantom 决定。 Cancellation stops the local wait; Phantom decides whether its approval window closes. */
+    const stoppedWaiting = new Promise<never>((_, reject) => {
+      approval.signal.addEventListener('abort', () => reject(approval.signal.reason), { once: true });
+    });
+
+    // 授权成功后才订阅钱包事件，取消后的迟到结果不会激活账号。
+    // Subscribe to wallet events only after approval so a late result cannot activate a cancelled account.
+    setActiveProvider(null);
     setError(null);
     setPendingAction('connecting');
     try {
-      /** Phantom 在授权后返回的账户公钥。 Account public key returned by Phantom after authorization. */
-      const { publicKey } = await provider.connect();
+      /** 仅在当前等待窗口内接受 Phantom 返回的公开地址。 Accept the public key only within the current approval wait. */
+      const { publicKey } = await Promise.race([provider.connect(), stoppedWaiting]);
+      if (pendingApproval.current !== approval || approval.signal.aborted) return;
       setWalletAddress(publicKey.toString());
+      setActiveProvider(provider);
     } catch (error) {
-      setError(getConnectError(error));
+      if (pendingApproval.current === approval) setError(getConnectError(error));
     } finally {
-      setPendingAction(null);
+      window.clearTimeout(timeout);
+      if (pendingApproval.current === approval) {
+        pendingApproval.current = null;
+        setPendingAction(null);
+      }
     }
+  }
+
+  /** 用户可以立即退出页面等待，迟到的授权结果不会更新钱包状态。 Let users stop waiting immediately without applying a late wallet approval. */
+  function cancelConnect() {
+    pendingApproval.current?.abort('connectCancelled');
   }
 
   /** 请求断开并清空公钥，令依赖它的页面停止显示该钱包数据。 Disconnect and clear the public key so pages stop showing that wallet's data. */
@@ -156,6 +231,7 @@ export function PhantomWalletProvider({ children }: PropsWithChildren) {
     setPendingAction('disconnecting');
     try {
       await activeProvider.disconnect();
+      setActiveProvider(null);
       setWalletAddress(null);
     } catch {
       setError('disconnectError');
@@ -164,11 +240,55 @@ export function PhantomWalletProvider({ children }: PropsWithChildren) {
     }
   }
 
+  /**
+   * 让当前 Phantom 账户确认构造好的交易，返回广播的签名。
+   * Request approval for the built transaction from the current Phantom account and return its signature.
+   *
+   * @param transaction 已设置 fee payer 和 Devnet blockhash 的交易。 Transaction with a fee payer and a Devnet blockhash.
+   * @param expectedWallet 建立预览时的钱包公钥。 Wallet public key bound to the preview.
+   * @param minContextSlot 模拟和提交时不得落后的链上 slot。 Lowest acceptable chain context slot for preflight and submission.
+   * @returns Phantom 返回的 Base58 交易签名，链上确认由业务模块检查。 Base58 signature returned by Phantom, with confirmation checked by the feature.
+   */
+  async function signAndSendTransaction(transaction: Transaction, expectedWallet: string, minContextSlot: number) {
+    if (transactionApproval.current) throw new WalletTransactionError('approvalPending');
+
+    // 送交签名前重新核对扩展当前地址，防止准备交易期间切换了账户。
+    // Recheck the extension's current account before signing in case it changed while preparing the transaction.
+    if (!activeProvider || pendingAction || walletAddress !== expectedWallet ||
+        activeProvider.publicKey?.toString() !== expectedWallet || transaction.feePayer?.toBase58() !== expectedWallet) {
+      throw new WalletTransactionError('walletChanged');
+    }
+    if (!activeProvider.signAndSendTransaction) throw new WalletTransactionError('submissionFailed');
+
+    transactionApproval.current = true;
+    try {
+      /** 签名仅标识提交，是否成功执行由 Devnet RPC 检查。 The signature identifies submission; Devnet RPC verifies execution. */
+      const { signature } = await activeProvider.signAndSendTransaction(transaction, {
+        preflightCommitment: 'confirmed',
+        minContextSlot,
+      });
+      if (!/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) {
+        throw new WalletTransactionError('submissionFailed');
+      }
+      return signature;
+    } catch (error) {
+      if (error instanceof WalletTransactionError) throw error;
+      /** Phantom 的错误码帮助区分主动拒绝和已有钱包操作。 Phantom error codes distinguish rejection from another wallet request. */
+      const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+      if (code === 4001) throw new WalletTransactionError('rejected', error);
+      if (code === -32002) throw new WalletTransactionError('approvalPending', error);
+      if (code === 4100) throw new WalletTransactionError('walletChanged', error);
+      throw new WalletTransactionError('submissionFailed', error);
+    } finally {
+      transactionApproval.current = false;
+    }
+  }
+
   /** 等待状态优先显示，其他时候由当前公钥决定连接状态。 Show pending actions first and otherwise derive status from the public key. */
   const status = pendingAction ?? (walletAddress ? 'connected' : 'disconnected');
 
   return (
-    <PhantomWalletContext.Provider value={{ walletAddress, status, error, connect, disconnect }}>
+    <PhantomWalletContext.Provider value={{ walletAddress, status, error, connect, cancelConnect, disconnect, signAndSendTransaction }}>
       {children}
     </PhantomWalletContext.Provider>
   );

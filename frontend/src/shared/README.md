@@ -4,3 +4,4 @@
 - [navigation](navigation/README.md) 提供路由路径、网络选择和带网络参数的链接。
 - [ui](ui/README.md) 提供可跨业务复用的界面组件。
 - [preferences.ts](preferences.ts) 封装浏览器界面偏好的读写，供翻译初始化与网络选择共用。
+- [formatTokenAmount.ts](formatTokenAmount.ts) 将整数最小单位按资产精度格式化为显示文本，供钱包余额与金库等数值展示复用。

@@ -1,0 +1,79 @@
+/* 钱包余额放在业务入口之前，地址和金额在窄屏可以换行。 */
+/* Put the wallet balance before the business links, with wrapping for long values on narrow screens. */
+.wallet-balance {
+  display: grid;
+  min-width: 0;
+  gap: 0.75rem;
+  margin-bottom: 1.15rem;
+  padding: 1rem 1.2rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+}
+
+.wallet-balance__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 1rem;
+}
+
+.wallet-balance__header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 680;
+}
+
+.wallet-balance__header button {
+  min-height: 2.5rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.wallet-balance__header button:enabled {
+  cursor: pointer;
+}
+
+.wallet-balance__header button:enabled:hover {
+  border-color: var(--accent);
+}
+
+.wallet-balance__header button:disabled {
+  opacity: 0.62;
+}
+
+.wallet-balance__status,
+.wallet-balance__identity {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.wallet-balance__status--error {
+  color: #ffb7b7;
+}
+
+.wallet-balance__identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.55rem;
+  overflow-wrap: anywhere;
+}
+
+.wallet-balance__identity code {
+  font-size: inherit;
+}
+
+.wallet-balance__amount {
+  color: var(--accent);
+  font-size: clamp(1.35rem, 4vw, 2rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 690;
+  overflow-wrap: anywhere;
+}

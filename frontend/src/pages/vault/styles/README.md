@@ -6,6 +6,7 @@
 | --- | --- |
 | [vault-page.css](vault-page.css) | 金库概况布局、选择器和状态提示 |
 | [vault-overview-cards.css](vault-overview-cards.css) | 估值和赎回资金卡片 |
+| [vault-transaction.css](vault-transaction.css) | 存入和赎回表单、报价及确认结果 |
 | [vault-position.css](vault-position.css) | 我的金库份额 |
 | [vault-nav-history.css](vault-nav-history.css) | 每份净值走势区块、查询状态和分页控件 |
 | [vault-nav-chart.css](vault-nav-chart.css) | 图表、坐标轴、观测点和详情 |

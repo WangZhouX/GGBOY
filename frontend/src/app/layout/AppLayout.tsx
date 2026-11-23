@@ -19,6 +19,8 @@ export function AppLayout() {
   const wallet = usePhantomWallet();
   /** 等待钱包处理时禁用按钮，避免重复请求。 Disable the button while Phantom processes an action. */
   const walletActionPending = wallet.status === 'connecting' || wallet.status === 'disconnecting';
+  /** 钱包还在等用户处理扩展中的授权。 The wallet is still waiting for approval in the extension. */
+  const waitingForApproval = wallet.status === 'connecting';
   /** 顶栏显示简写公钥，完整公钥由提示提供。 Show a shortened public key in the header and expose the full key in the tooltip. */
   const shortWalletAddress = wallet.walletAddress
     ? `${wallet.walletAddress.slice(0, 4)}…${wallet.walletAddress.slice(-4)}`
@@ -89,6 +91,20 @@ export function AppLayout() {
             >
               {walletLabel}
             </button>
+            {/* Phantom 的授权窗口由扩展负责。取消只结束本站的等待。 */}
+            {/* The extension controls its own approval window. Cancel only ends the app's wait. */}
+            {waitingForApproval && (
+              <>
+                <button
+                  className="topbar-wallet__button topbar-wallet__button--secondary"
+                  type="button"
+                  onClick={wallet.cancelConnect}
+                >
+                  {t('wallet.cancelConnect')}
+                </button>
+                <p className="topbar-wallet__help" role="status">{t('wallet.connectHelp')}</p>
+              </>
+            )}
             {wallet.error && <p className="topbar-wallet__error" role="alert">{t(`wallet.${wallet.error}`)}</p>}
           </div>
         </header>
