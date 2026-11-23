@@ -6,13 +6,13 @@
 
 ## 工程结构
 
-后端根 [pom.xml](pom.xml) 聚合三个 Maven 子项目，每个子项目都通过自己的 `module-info.java` 声明 Java 模块。
+后端根 [pom.xml](pom.xml) 聚合三个 Maven 子项目，依赖关系由各子项目的 `pom.xml` 管理。Spring Boot 按类路径启动。
 
-| 子项目 | Java 模块 | 职责 |
-| --- | --- | --- |
-| [ggboy-app](ggboy-app/README.md) | `io.ggboy.app` | 唯一启动入口与 `application.yml`，装配 Web、数据库、索引服务 |
-| [ggboy-core](ggboy-core/README.md) | `io.ggboy.core` | 业务类型与不变量，如 Mint、代币精度和最小单位金额 |
-| [ggboy-common](ggboy-common/README.md) | `io.ggboy.common` | 业务 API 响应、错误码、游标分页、网络标识、无符号整数校验与格式转换 |
+| 子项目 | 职责 |
+| --- | --- |
+| [ggboy-app](ggboy-app/README.md) | 唯一启动入口与 `application.yml`，装配 Web、数据库、索引服务 |
+| [ggboy-core](ggboy-core/README.md) | 业务类型与不变量，如 Mint、代币精度和最小单位金额 |
+| [ggboy-common](ggboy-common/README.md) | 业务 API 响应、错误码、游标分页、网络标识、无符号整数校验与格式转换 |
 
 依赖方向为 `app → core → common`，`app` 也直接使用 `common` 的 API 响应。公共库和核心库均可在纯 JDK 环境下运行。新增工具时按职责归属，例如可复用的整数范围校验属于公共库，Solana Mint 的业务约束属于核心库。
 
@@ -26,7 +26,7 @@
 mvn clean package
 ```
 
-构建会运行测试并生成三个模块的 JAR。用于启动的模块和第三方依赖位于 `ggboy-app/target/modules/` 与 `ggboy-app/target/lib/`，部署时保留两个目录。Java 使用 module path 加载项目模块。classpath 加载部分第三方库和独立的 Flyway 迁移资源 JAR，由 Flyway 从其中读取版本化 SQL。启动前准备 PostgreSQL 数据库和具备迁移权限的登录角色，并配置以下环境变量。
+构建会运行测试，并将 `ggboy-app` 的应用代码、运行依赖和 Flyway 迁移一起打包为 Spring Boot 可执行 JAR。启动前准备 PostgreSQL 数据库和具备迁移权限的登录角色，并配置以下环境变量。
 
 | 变量 | 用途 | 默认值 |
 | --- | --- | --- |
@@ -35,9 +35,7 @@ mvn clean package
 | `GGBOY_DB_PASSWORD` | 数据库密码 | 空 |
 
 ```sh
-java --module-path ggboy-app/target/modules \
-     --class-path 'ggboy-app/target/lib/*' \
-     --module io.ggboy.app/io.ggboy.backend.GgboyBackendApplication
+java -jar ggboy-app/target/ggboy-app-0.1.0-SNAPSHOT.jar
 ```
 
 用另一个终端检查服务状态。
@@ -48,11 +46,15 @@ curl --fail http://localhost:8080/actuator/health
 
 应用和 PostgreSQL 正常时，健康检查返回 `{"status":"UP"}`。
 
+### IntelliJ IDEA
+
+以 Maven 项目打开 `backend/pom.xml`，选择 JDK 25 作为项目 SDK。在 Maven 工具窗口重新加载所有 Maven 项目，然后在 `ggboy-app` 运行 `io.ggboy.backend.GgboyBackendApplication`。在运行配置中使用上表的数据库环境变量。
+
 ## 在线接口文档
 
 后端启动后，在 [Swagger UI](http://localhost:8080/swagger-ui.html) 按「策略金库」「借贷市场」「交易活动」浏览接口的中文名称、用途、参数和响应模型。展开接口可以直接向当前后端发请求。供工具读取的 [OpenAPI JSON](http://localhost:8080/v3/api-docs) 与页面使用同一份文档。
 
-文档默认开启。将环境变量 `GGBOY_SWAGGER_ENABLED` 设为 `false` 可同时关闭 Swagger UI 和 OpenAPI 文档端点。打包后的 springdoc 与 Swagger UI 资源由后端启动命令中的 classpath 加载。
+文档默认开启。将环境变量 `GGBOY_SWAGGER_ENABLED` 设为 `false` 可同时关闭 Swagger UI 和 OpenAPI 文档端点。springdoc 与 Swagger UI 资源随可执行 JAR 一起打包。
 
 ## 入口
 

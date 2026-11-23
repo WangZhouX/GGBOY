@@ -11,4 +11,4 @@
 
 应用模块负责 HTTP 状态与 JSON 序列化，核心模块负责 Mint、份额和债务等业务语义。配置与启动入口在 `ggboy-app`。可在后端根目录使用 `mvn -pl ggboy-common -am test` 单独运行公共模块的契约测试。
 
-[公共 API 源码](src/main/java/io/ggboy/common/api/README.md) · [公共数值工具](src/main/java/io/ggboy/common/utils/README.md) · [契约测试](src/test/README.md) · [Java 模块声明](src/main/java/module-info.java) · [后端构建指南](../README.md)
+[公共 API 源码](src/main/java/io/ggboy/common/api/README.md) · [公共数值工具](src/main/java/io/ggboy/common/utils/README.md) · [契约测试](src/test/README.md) · [后端构建指南](../README.md)

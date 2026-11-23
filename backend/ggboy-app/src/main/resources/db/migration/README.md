@@ -3,9 +3,9 @@
 - [V1](V1__create_indexer_schema.sql) 建立原有的 13 张索引、金库、借贷和风险表。 Creates the original 13 index, vault, lending and risk tables.
 - [V2](V2__add_liquidation_oracle_data.sql) 追加借贷市场的价格源配置、报价与风险批次字段，以及清算列表分页索引。 Adds the lending oracle configuration, quote and risk batch fields and the liquidation pagination index.
 
-打包时迁移文件进入 `ggboy-app/target/lib/` 下的 `*-migrations.jar`，Flyway 从应用的 classpath 读取。启动时保留 [后端运行说明](../../../../../../README.md) 中的 module path 和 classpath。
+Spring Boot 将迁移文件打包到可执行 JAR 的 `BOOT-INF/classes/db/migration` 下。通过 [后端运行说明](../../../../../../README.md#构建与运行) 中的命令启动后，Flyway 从 `classpath:db/migration` 读取并执行迁移。
 
-The build stages migrations in `*-migrations.jar` under `ggboy-app/target/lib/` for Flyway to read from the application classpath. Keep both paths in the [backend launch command](../../../../../../README.md).
+Spring Boot packages migrations under `BOOT-INF/classes/db/migration` in the executable JAR. When started with the [backend launch command](../../../../../../README.md#构建与运行), Flyway reads and applies migrations from `classpath:db/migration`.
 
 ## 初始化与升级 / Setup and upgrades
 

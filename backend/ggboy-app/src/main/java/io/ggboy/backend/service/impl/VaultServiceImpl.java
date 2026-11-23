@@ -32,8 +32,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.ProxyType;
-import org.springframework.context.annotation.Proxyable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,9 +41,6 @@ import org.springframework.transaction.annotation.Transactional;
  * Coordinates read models for vault registrations, assets, snapshot history and wallet positions.
  */
 @Service
-// 通过 VaultService 接口代理只读事务，适配当前的 JPMS 启动方式。
-// Proxy read-only transactions through the VaultService interface for the current JPMS launch mode.
-@Proxyable(ProxyType.INTERFACES)
 public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
         implements VaultService {
 

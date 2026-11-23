@@ -24,8 +24,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.springframework.context.annotation.ProxyType;
-import org.springframework.context.annotation.Proxyable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,9 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
  * Coordinates activity pagination and receipt lookup with shared assembly of participants and asset movements.
  */
 @Service
-// 由服务接口承载只读事务代理，适配当前 JPMS 运行方式。
-// Proxy the read-only transaction through the service interface for the current JPMS setup.
-@Proxyable(ProxyType.INTERFACES)
 public class ChainEventServiceImpl extends ServiceImpl<ChainEventMapper, ChainEventDO>
         implements ChainEventService {
 

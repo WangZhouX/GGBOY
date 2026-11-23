@@ -30,8 +30,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.ProxyType;
-import org.springframework.context.annotation.Proxyable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,9 +39,6 @@ import org.springframework.transaction.annotation.Transactional;
  * Assembles market registrations, mint metadata, and snapshots into pool overviews and wallet positions.
  */
 @Service
-// 用服务接口代理只读事务，适配 JPMS 启动方式。
-// Proxy read-only transactions through the service interface for JPMS startup.
-@Proxyable(ProxyType.INTERFACES)
 public class LendingMarketServiceImpl extends ServiceImpl<LendingMarketMapper, LendingMarketDO>
         implements LendingMarketService {
 

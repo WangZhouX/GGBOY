@@ -27,8 +27,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.ProxyType;
-import org.springframework.context.annotation.Proxyable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,9 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
  * Verifies the oracle observation and filters the latest published positions in a consistent database view.
  */
 @Service
-// 使用接口事务代理，适配 JPMS 启动方式。
-// Use an interface-based transaction proxy for JPMS startup.
-@Proxyable(ProxyType.INTERFACES)
 public class LendingLiquidationServiceImpl implements LendingLiquidationService {
 
     /** 单次读取的原始仓位上限，也限制新仓位查询的地址集合。 Bounds each position batch and its newer-wallet lookup. */

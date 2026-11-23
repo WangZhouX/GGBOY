@@ -8,4 +8,4 @@
 | [应用配置](src/main/resources/application.yml) | 配置唯一的数据源、Flyway 和 Actuator |
 | [迁移目录](src/main/resources/db/migration/README.md) | 存放版本化的 PostgreSQL 迁移 |
 
-在后端聚合工程下构建三个模块，再启动本应用。命令和数据库环境变量见[构建与运行](../README.md)。
+在后端聚合工程下构建三个模块，随后用 `java -jar` 启动 `ggboy-app/target/ggboy-app-0.1.0-SNAPSHOT.jar`。命令和数据库环境变量见[构建与运行](../README.md#构建与运行)。

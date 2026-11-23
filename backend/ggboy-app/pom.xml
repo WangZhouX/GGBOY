@@ -14,9 +14,6 @@
     <description>Solana DeFi indexer and query API</description>
 
     <properties>
-        <!-- MyBatis API 和 Swagger 注解在编译与运行时均使用模块路径。
-             Keep the MyBatis API and Swagger annotations on the module path at compile time and runtime. -->
-        <library-module-artifacts>mybatis,mybatis-plus-core,mybatis-plus-annotation,mybatis-plus-extension,mybatis-plus-spring,swagger-annotations</library-module-artifacts>
         <!-- springdoc 与 Swagger 注解版本由同一个 BOM 管理。
              Manage springdoc and Swagger annotations with the same BOM. -->
         <springdoc.version>3.2.1</springdoc.version>
@@ -64,7 +61,7 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- Mapper 接口与注解参与模块编译，Starter 负责运行期自动配置。
+        <!-- Mapper 接口与注解参与应用编译，Starter 负责运行期自动配置。
              Compile against mapper interfaces and annotations; load starter auto-configuration at runtime. -->
         <dependency>
             <groupId>com.baomidou</groupId>
@@ -107,77 +104,11 @@
 
     <build>
         <plugins>
-            <!-- 应用自身也是具名模块，与框架模块一起发布到 modules 目录。
-                 Publish the application itself as a named module alongside the framework modules. -->
+            <!-- 由 Spring Boot 将应用、运行时依赖和资源打包为可执行 JAR。
+                 Spring Boot packages the application, runtime dependencies, and resources in an executable JAR. -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>default-jar</id>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/modules</outputDirectory>
-                            <excludes>
-                                <exclude>db/migration/**</exclude>
-                            </excludes>
-                        </configuration>
-                    </execution>
-                    <!-- Flyway 通过类路径读取 SQL。独立的资源 JAR 避免 JPMS 限制或重复发现同一次迁移。
-                         Flyway reads SQL from the classpath. A resource-only JAR avoids JPMS access restrictions and duplicate discovery. -->
-                    <execution>
-                        <id>stage-flyway-migrations</id>
-                        <phase>package</phase>
-                        <goals><goal>jar</goal></goals>
-                        <configuration>
-                            <classifier>migrations</classifier>
-                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
-                            <includes>
-                                <include>db/migration/*.sql</include>
-                            </includes>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <executions>
-                    <!-- 项目模块和 Spring 的具名/自动模块进入 JPMS module path。
-                         Place the project modules and Spring modules on the JPMS module path. -->
-                    <execution>
-                        <id>stage-module-path</id>
-                        <phase>package</phase>
-                        <goals><goal>copy-dependencies</goal></goals>
-                        <configuration>
-                            <includeScope>runtime</includeScope>
-                            <includeGroupIds>io.ggboy,org.springframework,org.springframework.boot</includeGroupIds>
-                            <outputDirectory>${project.build.directory}/modules</outputDirectory>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>stage-library-modules</id>
-                        <phase>package</phase>
-                        <goals><goal>copy-dependencies</goal></goals>
-                        <configuration>
-                            <includeScope>runtime</includeScope>
-                            <includeArtifactIds>${library-module-artifacts}</includeArtifactIds>
-                            <outputDirectory>${project.build.directory}/modules</outputDirectory>
-                        </configuration>
-                    </execution>
-                    <!-- MyBatis-Plus 自动配置包、springdoc 和 Swagger UI 静态资源从 classpath 加载。
-                         Load MyBatis-Plus auto-configuration, springdoc and Swagger UI assets from the classpath. -->
-                    <execution>
-                        <id>stage-class-path</id>
-                        <phase>package</phase>
-                        <goals><goal>copy-dependencies</goal></goals>
-                        <configuration>
-                            <includeScope>runtime</includeScope>
-                            <excludeArtifactIds>${library-module-artifacts}</excludeArtifactIds>
-                            <excludeGroupIds>io.ggboy,org.springframework,org.springframework.boot</excludeGroupIds>
-                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
-                        </configuration>
-                    </execution>
-                </executions>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
         </plugins>
     </build>
