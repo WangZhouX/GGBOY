@@ -44,7 +44,7 @@ export interface VaultListItem {
 }
 
 /** 资产标识与显示精度。 Asset identifier and display precision. */
-interface VaultAsset {
+export interface VaultAsset {
   /** 资产的链上 Mint 公钥。 On-chain public key of the asset mint. */
   mint: string;
 
@@ -56,7 +56,7 @@ interface VaultAsset {
 }
 
 /** 金库最新快照。金额、份额和 slot 用十进制整数字符串传输。 Latest vault snapshot. Amounts, shares, and slots are decimal integer strings. */
-interface VaultLatestSnapshot {
+export interface VaultLatestSnapshot {
   /** 采集账户时的观测 slot。 Slot at which the accounts were observed. */
   slot: string;
 

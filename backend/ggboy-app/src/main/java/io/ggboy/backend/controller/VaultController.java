@@ -58,14 +58,14 @@ public class VaultController {
      * 查询指定网络的金库目录和最新快照。此列表是公开只读接口。
      * Lists registered vaults and their latest snapshots for the requested network. This is a public read-only endpoint.
      *
-     * <p>预计前端用途为策略金库页（原型 {@code #vault}）的「金库资产与每份净值」和「即时赎回资金来源」。
-     * 页面打开、刷新或切换网络时调用，无需连接钱包。响应供页面展示总净值、每份净值、闲置现金、
-     * 策略与出借估值、以及金库当前可用的赎回资金。
-     * Planned frontend use is the Strategy Vault page (prototype {@code #vault}), in the
-     * Vault Assets and NAV per Share and Immediate Redemption Funding sections.
-     * Call on page entry, refresh, or network change without requiring a connected wallet.
-     * The response supports total NAV, NAV per share, idle cash, strategy and lending valuations,
-     * and the vault's currently available redemption funding.
+     * <p>策略金库页（{@code /vault}，原型 {@code #vault}）使用本接口展示「金库资产与每份净值」
+     * 和「即时赎回资金来源」。首次打开、刷新或切换网络时由页面查询缓存管理请求，无需连接钱包。
+     * 每条金库记录供页面展示总净值、每份净值、闲置现金、策略与出借估值，以及快照记录的可支付资金。
+     * The Strategy Vault page ({@code /vault}, prototype {@code #vault}) uses this endpoint for
+     * Vault Assets and NAV per Share and Immediate Redemption Funding. Its query cache manages
+     * requests on first entry, refresh, and network switches without a connected wallet.
+     * Each entry provides total NAV, NAV per share, idle cash, strategy and lending valuations,
+     * and the funding recorded in the snapshot.
      *
      * @param network 必填，使用 {@code localnet} 或 {@code devnet}。
      *        Required network identifier, either {@code localnet} or {@code devnet}.
@@ -110,13 +110,13 @@ public class VaultController {
      * 按数值 slot 倒序分页查询已登记金库的历史快照。
      * Pages through a registered vault's snapshot history in descending numeric slot order.
      *
-     * <p>预计用于策略金库页（原型 {@code #vault}）的「每份净值走势」。页面取得选中金库地址后加载首屏，
-     * 切换金库或网络时重查。图表需要更早的点时传入 {@code nextCursor}，无需连接钱包。按 {@code observedAt}
-     * 的时间正序绘图，用 {@code navRaw} 与 {@code totalSharesRaw} 按各自 Mint 精度换算每份净值。
+     * <p>策略金库页 {@code /vault} 的「每份净值走势」在取得选中金库地址后读取历史，切换金库或网络时读取对应查询。
+     * 点击「加载更早数据」时传入上次返回的 {@code nextCursor}。点击「刷新净值走势」时从首屏重查，整个区域无需连接钱包。
+     * 按 {@code observedAt} 的时间正序绘图，用 {@code navRaw} 与 {@code totalSharesRaw} 按各自 Mint 精度换算每份净值。
      * 缺少净值或总份额为零时保留图表缺口。
-     * Planned for the NAV per Share History chart on the Strategy Vault page (prototype {@code #vault}).
-     * Fetch the first page once a vault is selected and refetch when the vault or network changes. Use
-     * {@code nextCursor} for older chart points. A wallet connection is unnecessary. Plot {@code observedAt}
+     * The NAV per Share History chart on {@code /vault} reads history after a vault is selected and switches
+     * queries when the vault or network changes. Load Older Data passes the previous {@code nextCursor}.
+     * Refresh NAV History re-fetches from the first page. No wallet connection is required. Plot {@code observedAt}
      * chronologically and calculate NAV per share from {@code navRaw} and {@code totalSharesRaw} using their
      * mint decimals. Leave a gap when NAV is unavailable or outstanding shares are zero.
      *
@@ -184,15 +184,15 @@ public class VaultController {
      * 查询指定网络、金库和钱包的最新持仓。
      * Reads the latest position for the requested network, vault and wallet.
      *
-     * <p>预计用于策略金库页（原型 {@code #vault}）的「我的金库份额」区域。页面取得当前金库地址和已连接钱包的
-     * 公钥后调用，钱包、金库或网络切换以及存入或赎回确认后重查。用 {@code sharesRaw} 显示「持有份额」，
-     * {@code positionValueRaw} 显示「份额估值」，{@code redeemableRaw} 显示「现在可赎回」。
-     * {@code maxRedeemSharesRaw} 可为「赎回份额」表单提供快照中的份额上限。
-     * Planned for the Strategy Vault page (prototype {@code #vault}), in the My Vault Shares section.
-     * Call once the page has the selected vault address and connected wallet public key. Refetch on wallet, vault
-     * or network change and after a deposit or redemption confirms. Render Shares Held from {@code sharesRaw},
-     * Position Value from {@code positionValueRaw} and Redeemable Now from {@code redeemableRaw}.
-     * The Redeem Shares form can use {@code maxRedeemSharesRaw} as its snapshot-based share limit.
+     * <p>策略金库页 {@code /vault} 的「我的金库份额」在取得选中金库地址及已连接的钱包公钥后查询。
+     * 钱包、金库或网络切换时读取对应仓位，用户可手动刷新。用 {@code sharesRaw} 显示「持有份额」，
+     * {@code positionValueRaw} 显示「份额估值」，{@code redeemableRaw} 显示「现在可赎回」。当可赎回金额
+     * 低于估值时，用 {@code maxRedeemSharesRaw} 显示快照中的份额上限。
+     * The My Vault Shares section on {@code /vault} queries once it has the selected vault address and connected
+     * wallet public key. It reads the corresponding position on wallet, vault, or network changes and supports manual
+     * refresh. It displays Shares Held from {@code sharesRaw}, Position Value from {@code positionValueRaw}, and
+     * Redeemable Now from {@code redeemableRaw}. If redeemable proceeds are below the position value, it displays
+     * the snapshot-based share limit from {@code maxRedeemSharesRaw}.
      *
      * @param address 选中金库的 Base58 公钥，解码为 32 字节。 Selected vault's Base58 public key, decoded to 32 bytes.
      * @param wallet 已连接钱包的 Base58 公钥，解码为 32 字节。 Connected wallet's Base58 public key, decoded to 32 bytes.

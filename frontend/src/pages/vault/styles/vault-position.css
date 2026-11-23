@@ -1,0 +1,109 @@
+/* 策略金库页的份额区域紧随公开概况，标题、选择器和数值分开排列。 */
+/* Place the Vault page position after the overview, with separate heading, selector, and value rows. */
+.vault-position {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2.15rem;
+}
+
+.vault-position__header,
+.vault-position__observation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+}
+
+.vault-position__header {
+  justify-content: space-between;
+}
+
+.vault-position__header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 690;
+}
+
+.vault-position__observation,
+.vault-position__status {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.vault-position__refresh {
+  min-height: 2.5rem;
+  max-width: 100%;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.vault-position__refresh:enabled {
+  cursor: pointer;
+}
+
+.vault-position__refresh:enabled:hover {
+  border-color: var(--accent);
+}
+
+.vault-position__refresh:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+/* 状态提示和持仓明细共享区域边界。 */
+/* Share the region boundary across feedback and position details. */
+.vault-position__status,
+.vault-position__details {
+  margin: 0;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+}
+
+.vault-position__status--error {
+  border-color: #734c4b;
+  color: #ffb7b7;
+}
+
+.vault-position__observation {
+  margin: 0 0 0.9rem;
+}
+
+.vault-position__observation span,
+.vault-position__limit {
+  color: #efbc84;
+}
+
+/* 宽屏并排读三项数值，窄屏换行并保留长金额。 */
+/* Read the three values side by side on wide screens and wrap long amounts on narrow screens. */
+.vault-position__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0.9rem 1.15rem;
+  margin: 0;
+}
+
+.vault-position__metrics dt {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.vault-position__metrics dd {
+  margin: 0.2rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 660;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.vault-position__limit {
+  margin: 0.9rem 0 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}

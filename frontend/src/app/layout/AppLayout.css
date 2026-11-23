@@ -96,6 +96,47 @@
   padding-inline: 0.5rem;
 }
 
+/* 紧凑显示地址与操作，连接错误在同一区域换行。 */
+/* Keep the address and action compact and wrap connection errors below them. */
+.topbar-wallet {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.topbar-wallet__address {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
+.topbar-wallet__button {
+  min-height: 2.25rem;
+  border: 1px solid #355746;
+  border-radius: 0.4rem;
+  padding-inline: 0.65rem;
+  background: #15251c;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.topbar-wallet__button:hover:not(:disabled) {
+  background: #213a2d;
+}
+
+.topbar-wallet__button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.topbar-wallet__error {
+  flex-basis: 100%;
+  margin: 0;
+  color: #ffc3b8;
+}
+
 /* 在全站外层布局约束正文宽度和留白。 */
 /* Constrain the content width and spacing in the application shell. */
 .main-content {

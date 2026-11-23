@@ -1,0 +1,189 @@
+/* 轴标签采用普通文字，在 SVG 适应窗口宽度时保持字号。 */
+/* Keep axis labels at a readable font size as the SVG resizes. */
+.vault-nav-chart {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+  margin: 0;
+}
+
+.vault-nav-chart__unit,
+.vault-nav-chart__x-axis,
+.vault-nav-chart__y-axis {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.vault-nav-chart__grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.45rem 0.7rem;
+  padding-inline-end: 0.45rem;
+}
+
+.vault-nav-chart__y-axis {
+  display: grid;
+  grid-template-rows: 1fr;
+  justify-items: end;
+}
+
+.vault-nav-chart__y-label {
+  position: relative;
+  grid-area: 1 / 1;
+  align-self: start;
+  max-inline-size: clamp(3.5rem, 17vw, 11rem);
+  overflow: hidden;
+  transform: translateY(-50%);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* SVG 画路径，独立的按钮提供一致的焦点和点击目标。 */
+/* Draw the path in SVG and use separate buttons for predictable focus and hit areas. */
+.vault-nav-chart__plot {
+  position: relative;
+  min-width: 0;
+  height: clamp(10.5rem, 30vw, 17.5rem);
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.vault-nav-chart__plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.vault-nav-chart__guide,
+.vault-nav-chart__series {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.vault-nav-chart__guide {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.vault-nav-chart__series {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.vault-nav-chart__point {
+  position: absolute;
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.vault-nav-chart__point::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--accent);
+  content: '';
+}
+
+/* 用双圈表示一个位置可以展开查看多条观测。 */
+/* Use a double ring for a position with more than one observation to inspect. */
+.vault-nav-chart__point[data-overlap='true']::before {
+  box-shadow: 0 0 0 0.14rem var(--surface), 0 0 0 0.21rem var(--accent);
+}
+
+.vault-nav-chart__point[aria-pressed='true'],
+.vault-nav-chart__point:focus-visible {
+  z-index: 1;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.vault-nav-chart__point:focus-visible {
+  outline-offset: 0;
+}
+
+.vault-nav-chart__x-axis {
+  grid-column: 2;
+}
+
+.vault-nav-chart__x-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.vault-nav-chart__x-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vault-nav-chart__x-label:last-child {
+  text-align: end;
+}
+
+.vault-nav-chart__x-label:only-child {
+  margin-inline: auto;
+  text-align: center;
+}
+
+.vault-nav-chart__time-axis {
+  margin: 0.2rem 0 0;
+  text-align: center;
+}
+
+/* 点详情独立于图形位置，窄屏折行仍能显示完整时间。 */
+/* Keep point details separate from the plot position so full timestamps can wrap on narrow screens. */
+.vault-nav-chart__detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.85rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.vault-nav-chart__detail > :first-child {
+  color: var(--accent);
+}
+
+/* 多条重合观测放在同一组翻阅操作中，窄屏也可单独点击。 */
+/* Keep navigation for overlapping observations together and independently tappable on narrow screens. */
+.vault-nav-chart__observation-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.vault-nav-chart__observation-nav button {
+  min-height: 2.4rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.vault-nav-chart__observation-nav button:hover {
+  border-color: var(--accent);
+}
+
+.vault-nav-chart__empty {
+  margin: 0;
+  color: var(--muted);
+}

@@ -1,0 +1,65 @@
+/* 趋势区保持标题、曲线和续页操作的阅读顺序。 */
+/* Keep the heading, chart, and history paging controls in reading order. */
+.vault-history {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2.15rem;
+  min-width: 0;
+}
+
+.vault-history__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+}
+
+.vault-history__header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 690;
+}
+
+.vault-history__status {
+  margin: 0;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.vault-history__status--error {
+  border-color: #734c4b;
+  color: #ffb7b7;
+}
+
+.vault-history__button {
+  min-height: 2.5rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.vault-history__button:enabled {
+  cursor: pointer;
+}
+
+.vault-history__button:enabled:hover {
+  border-color: var(--accent);
+}
+
+.vault-history__button:disabled {
+  opacity: 0.62;
+}
+
+.vault-history__footer {
+  display: flex;
+  justify-content: center;
+}

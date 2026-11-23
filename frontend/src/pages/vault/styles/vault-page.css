@@ -1,0 +1,80 @@
+/* 金库概况标题与刷新操作在窄屏自然换行。 */
+/* Let the vault overview title and refresh control wrap on narrow screens. */
+.vault-overview {
+  display: grid;
+  gap: 1rem;
+}
+
+.vault-overview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+}
+
+.vault-overview__header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 690;
+}
+
+.vault-overview__refresh {
+  min-height: 2.5rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.vault-overview__refresh:enabled:hover {
+  border-color: var(--accent);
+}
+
+.vault-overview__refresh:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+/* 加载、空列表与请求失败保持固定的位置和可读的提示。 */
+/* Keep loading, empty, and failed request messages in a predictable location. */
+.vault-overview__status {
+  margin: 0;
+  padding: 0.95rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.vault-overview__status--error {
+  border-color: #734c4b;
+  color: #ffb7b7;
+}
+
+/* 同一个金库选择器控制历史曲线和钱包份额，在窄屏允许换行。 */
+/* Use one vault selector for the history and wallet shares, with wrapping on narrow screens. */
+.vault-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin-top: 1.7rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.vault-selection select {
+  min-height: 2.5rem;
+  max-width: 100%;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+}
