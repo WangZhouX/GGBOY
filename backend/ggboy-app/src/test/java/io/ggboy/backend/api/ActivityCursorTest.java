@@ -73,6 +73,31 @@ class ActivityCursorTest {
         }
     }
 
+    /** 分类变更或清除分类后不能重用游标。 Changing or clearing the category invalidates a continuation cursor. */
+    @Test
+    void bindsCursorToActivityCategory() {
+        // 仅修改分类，签名、钱包、金库和精确类型保持一致。
+        // Change only the category while keeping the signature, wallet, subject and exact types equal.
+        var vault = ActivityQuery.parse("localnet", WALLET, VAULT, SIGNATURE, QUERY.types(), "4", "vault");
+        var strategy = ActivityQuery.parse("localnet", WALLET, VAULT, SIGNATURE, QUERY.types(), "4", "strategy");
+        String token = ActivityCursor.encode(vault, BOUNDARY);
+        assertEquals(BOUNDARY, ActivityCursor.decode(vault, token));
+        assertThrows(IllegalArgumentException.class, () -> ActivityCursor.decode(strategy, token));
+        assertThrows(IllegalArgumentException.class, () -> ActivityCursor.decode(QUERY, token));
+    }
+
+    /** 省略分类仍兼容发布前生成的游标。 An omitted category preserves compatibility with existing cursors. */
+    @Test
+    void decodesLegacyUnfilteredCategoryCursor() {
+        // 摘要按旧版五个筛选值的编码预先计算。
+        // Use the precomputed digest for the five legacy filter values.
+        String legacy = "ac1:36d10eb22624cde209d8877945e5d59d00db611e243e4007b4cd32a11eadf913:"
+                + BOUNDARY.slot() + ":" + SIGNATURE + ":" + BOUNDARY.eventIndex();
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(legacy.getBytes(StandardCharsets.US_ASCII));
+        assertEquals(BOUNDARY, ActivityCursor.decode(QUERY, token));
+        assertEquals(token, ActivityCursor.encode(QUERY, BOUNDARY));
+    }
+
     /**
      * 拒绝负数、空白、非规范数字或 int 溢出的事件索引。
      * Rejects negative, blank, noncanonical, or overflowing index text.

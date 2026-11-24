@@ -2,7 +2,7 @@
 
 使用 JDK 25、Spring Boot 4.1.2、Spring Web MVC、Maven、PostgreSQL、MyBatis-Plus 3.5.18 和 Flyway。
 
-后端计划通过 Solana JSON-RPC 和 WebSocket 同步金库和借贷程序的事件与交易，支持去重和断线补扫。Spring Web 提供历史记录、净值快照和仓位查询接口。PostgreSQL 保存索引结果和同步游标，MyBatis-Plus 负责持久化访问，Flyway 管理数据库迁移。
+后端通过 Solana JSON-RPC 定时同步 Devnet 金库存赎，以及借贷市场的抵押、借款、还款和取回抵押品，支持去重和断线补扫。Spring Web 提供历史记录、净值快照和仓位查询接口。PostgreSQL 保存索引结果和同步游标，MyBatis-Plus 负责持久化访问，Flyway 管理数据库迁移。
 
 ## 工程结构
 
@@ -16,7 +16,7 @@
 
 依赖方向为 `app → core → common`，`app` 也直接使用 `common` 的 API 响应。公共库和核心库均可在纯 JDK 环境下运行。新增工具时按职责归属，例如可复用的整数范围校验属于公共库，Solana Mint 的业务约束属于核心库。
 
-后端以单个 Spring Boot 应用部署。首期交易活动查询按 Controller、Service、Mapper 三层组织。接链后，后台索引任务经模块服务将 Solana 事件写入同一个 PostgreSQL 索引库。应用内的包结构见 [Java 源码索引](ggboy-app/src/main/java/README.md)。
+后端以单个 Spring Boot 应用部署。交易活动查询按 Controller、Service、Mapper 三层组织。后台索引任务将链上事件写入同一个 PostgreSQL 索引库。应用内的包结构见 [Java 源码索引](ggboy-app/src/main/java/README.md)。
 
 ## 构建与运行
 
@@ -49,6 +49,42 @@ curl --fail http://localhost:8080/actuator/health
 ### IntelliJ IDEA
 
 以 Maven 项目打开 `backend/pom.xml`，选择 JDK 25 作为项目 SDK。在 Maven 工具窗口重新加载所有 Maven 项目，然后在 `ggboy-app` 运行 `io.ggboy.backend.GgboyBackendApplication`。在运行配置中使用上表的数据库环境变量。
+
+## Devnet 金库交易同步
+
+在 PostgreSQL 已执行 Flyway 迁移后，用 [Devnet 金库登记 SQL](../docs/backend/register-devnet-vault.sql) 登记已部署的金库和两个 Mint。已有登记可直接启动。默认每轮结束后等待 20 秒，本任务从已保存的检查点继续扫描，可在活动页选择 Devnet 并查看两种存赎和各自的回执。
+
+| 变量 | 用途 | 默认值 |
+| --- | --- | --- |
+| `GGBOY_DEVNET_VAULT_INDEXER_ENABLED` | 是否启用同步 | `true` |
+| GGBOY_DEVNET_VAULT_RPC_URL | 只读 Devnet RPC 地址 | https://api.devnet.solana.com |
+| GGBOY_DEVNET_VAULT_PROGRAM_ID | 对应数据库中登记的金库程序 ID | 前端 IDL 中当前部署的程序 ID |
+| GGBOY_DEVNET_VAULT_POLL_INTERVAL | 每轮结束后的等待时间 | 20s |
+
+同步沿用现有数据库表和 API。可通过 GET /api/v1/activities?network=devnet&category=vault 查看结果。节点限制读取时，任务保留最近已提交的检查点，下轮重试。历史节点须能返回已保存的检查点和后续交易日志，必要时切换 RPC。实现入口见 [Devnet 金库活动索引](ggboy-app/src/main/java/io/ggboy/backend/indexer/README.md)。
+
+## Devnet 借款交易同步
+
+[Devnet 借贷市场登记 SQL](../docs/backend/register-devnet-lending-market.sql) 为已部署市场登记程序与两种 Mint。已有登记可直接启动同步。任务按借贷程序分批回填节点可提供的最终确认历史，使用独立于金库的程序检查点。前端选择 Devnet，在「交易活动」切换到「借贷」，可按借款钱包过滤并打开回执。
+
+| 环境变量 | 用途 | 默认值 |
+| --- | --- | --- |
+| GGBOY_DEVNET_LENDING_INDEXER_ENABLED | 是否启用借款活动同步 | true |
+| GGBOY_DEVNET_LENDING_PROGRAM_ID | 必须与市场登记匹配的程序 ID | GGBOY 当前 Devnet 借贷程序 |
+| GGBOY_DEVNET_LENDING_POLL_INTERVAL | 每轮结束后的等待时间 | 20s |
+
+借贷与金库共用上述只读 RPC 配置。首次回填时活动会随批次逐步出现。可使用 `GET /api/v1/activities?network=devnet&category=lending` 查看结果。后续新增市场登记如需回填旧交易，应针对相应程序重新扫描已有检查点之前的历史。见[索引实现](ggboy-app/src/main/java/io/ggboy/backend/indexer/README.md#借款活动)。
+
+## Devnet 每份净值走势
+
+启动后，定时任务对已登记的纯现金金库读取同一最终确认 slot 的托管现金和 GG-V 总份额，按照网络、金库公钥与 slot 追加至 vault_snapshot。同一 slot 只保存一次。纯现金金库的 NAV 等于托管现金，前端使用现有金库快照接口计算每份净值。总份额为零的观测保留历史时间，但没有可绘制的每份净值。
+
+| 环境变量 | 用途 | 默认值 |
+| --- | --- | --- |
+| GGBOY_DEVNET_VAULT_SNAPSHOT_ENABLED | 分别控制金库快照任务 | true |
+| GGBOY_DEVNET_VAULT_SNAPSHOT_POLL_INTERVAL | 一轮结束之后再次采集的延迟 | 30s |
+
+采集共用上节的 Devnet RPC 地址与金库程序 ID。启动新版后检查 GET /api/v1/vaults/{address}/snapshots?network=devnet 中的 slot、observedAt、cashRaw 和 totalSharesRaw。任务从启动后实际读取的 slot 开始记录。查询与采集均使用现有数据库结构。
 
 ## 在线接口文档
 

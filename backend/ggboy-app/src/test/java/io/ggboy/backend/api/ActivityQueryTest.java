@@ -56,6 +56,32 @@ class ActivityQueryTest {
                 () -> ActivityQuery.parse("localnet", null, null, null, null, limit));
     }
 
+    /** 业务分类独立于精确事件类型，两种筛选同时保留。 Categories are independent of exact event types, so both filters are preserved. */
+    @Test
+    void parsesOptionalCategoryWithExactTypes() {
+        var query = ActivityQuery.parse("devnet", null, null, null, List.of("STRATEGY_SWAP"), "4", "strategy");
+        assertEquals(ActivityQuery.Category.STRATEGY, query.category());
+        assertEquals(List.of("STRATEGY_SWAP"), query.types());
+        assertEquals(ActivityQuery.Category.VAULT,
+                ActivityQuery.parse("devnet", null, null, null, null, null, "vault").category());
+        assertEquals(ActivityQuery.Category.LENDING,
+                ActivityQuery.parse("devnet", null, null, null, null, null, "lending").category());
+        assertNull(ActivityQuery.parse("devnet", null, null, null, null, null, null).category());
+    }
+
+    /**
+     * 「全部」省略分类字段，输入必须符合小写协议值。
+     * All omits the field, while explicit categories must match a lowercase wire value.
+     *
+     * @param category 无效的分类字符串。 Invalid category string.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "all", "VAULT", "other", " strategy "})
+    void rejectsInvalidCategories(String category) {
+        assertThrows(IllegalArgumentException.class,
+                () -> ActivityQuery.parse("devnet", null, null, null, null, null, category));
+    }
+
     /** 已提供的筛选不接受空值、非法编码或过多类型。 Supplied filters reject empty text, bad encodings, and excessive values. */
     @Test
     void rejectsInvalidFilters() {

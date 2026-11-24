@@ -77,6 +77,16 @@ public record ChainEventDO(
     }
 
     /**
+     * 提供业务分类筛选使用的 Lambda 属性访问器，对应 {@code module}。
+     * Exposes the {@code module} property for Lambda activity category filters.
+     *
+     * @return 事件模块代码 VAULT 或 LENDING。 Event module code VAULT or LENDING.
+     */
+    public String getModule() {
+        return module;
+    }
+
+    /**
      * 提供 Lambda 查询使用的属性访问器，对应 {@code event_type}。
      * Exposes the property for Lambda queries against the {@code event_type} column.
      *

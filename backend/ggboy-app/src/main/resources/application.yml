@@ -24,6 +24,27 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 ggboy:
+  devnet-vault-indexer:
+    # 仅为已登记的 Devnet 金库同步存赎活动。 / Sync deposits and redemptions only for registered Devnet vaults.
+    enabled: "${GGBOY_DEVNET_VAULT_INDEXER_ENABLED:true}"
+    # 只读 RPC 地址，可切换到具备 Devnet 历史的节点。 / Read-only RPC URL, replaceable with a node retaining Devnet history.
+    rpc-url: "${GGBOY_DEVNET_VAULT_RPC_URL:https://api.devnet.solana.com}"
+    # 与金库 IDL 相同的 Devnet 部署程序 ID。 / The same Devnet deployment program ID as the vault IDL.
+    program-id: "${GGBOY_DEVNET_VAULT_PROGRAM_ID:FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75}"
+    # 每轮结束后的等待时间，默认 20 秒。 / Delay after each pass, 20 seconds by default.
+    poll-interval: "${GGBOY_DEVNET_VAULT_POLL_INTERVAL:20s}"
+  devnet-lending-indexer:
+    # 同步登记市场的四类借款人活动。 / Index four borrower activity types for registered markets.
+    enabled: "${GGBOY_DEVNET_LENDING_INDEXER_ENABLED:true}"
+    # 与借贷 IDL 相同的 Devnet 部署程序公钥。 / Public key matching the Devnet deployment in the lending IDL.
+    program-id: "${GGBOY_DEVNET_LENDING_PROGRAM_ID:8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H}"
+    # 每轮结束后的等待时间，默认 20 秒。 / Delay after each pass, 20 seconds by default.
+    poll-interval: "${GGBOY_DEVNET_LENDING_POLL_INTERVAL:20s}"
+  devnet-vault-snapshot:
+    # 定时观测已登记的 Devnet 纯现金金库。 / Periodically sample registered Devnet cash vaults.
+    enabled: "${GGBOY_DEVNET_VAULT_SNAPSHOT_ENABLED:true}"
+    # 每轮完成后再次采集的延迟，默认 30 秒。 / Delay before the next capture pass, 30 seconds by default.
+    poll-interval: "${GGBOY_DEVNET_VAULT_SNAPSHOT_POLL_INTERVAL:30s}"
   vault:
     # 金库及钱包持仓快照在观测超过此秒数时标记为过期。
     # Mark vault and wallet position snapshots stale after this number of seconds from observation.

@@ -11,6 +11,6 @@
 | [service](io/ggboy/backend/service/README.md) | 提供单表服务，承载后续业务用例与事务边界 | 13 个基础接口及实现已建立，交易活动业务方法待开发 |
 | [mapper](io/ggboy/backend/mapper/README.md) | 通过 MyBatis-Plus 读写 PostgreSQL | 13 个基础 Mapper 已建立，业务查询待开发 |
 
-索引、金库、借贷查询和可选风险提醒的业务代码将分阶段接入。
+[indexer](io/ggboy/backend/indexer/README.md) 负责 Devnet 金库存赎与借款活动同步，以及纯现金金库的净值观测，沿用实体及 Mapper 写入活动、检查点和金库历史。
 
 业务请求的参数错误由 [api](io/ggboy/backend/api/README.md) 转为公共错误响应。

@@ -1,5 +1,6 @@
 package io.ggboy.backend.api;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
@@ -72,7 +73,11 @@ public record ActivityResponse(
      * @param decimals 交易发生时记录的 Mint 小数位数。 Mint decimals recorded at the time of the transaction.
      * @param amountRaw 变动最小单位数量，以十进制整数字符串表示。 Amount changed in base units as a decimal string.
      * @param legType 资产变动的稳定语义代码。 Stable code describing the asset change.
+     * @param symbol 当前网络的 Mint 登记简称，未登记或未配置时为空。 Current network's registered mint symbol, or null when unavailable.
      */
-    public record Asset(int legIndex, String mint, int decimals, String amountRaw, String legType) {
+    public record Asset(
+            int legIndex, String mint, int decimals, String amountRaw, String legType,
+            @Schema(nullable = true) String symbol
+    ) {
     }
 }

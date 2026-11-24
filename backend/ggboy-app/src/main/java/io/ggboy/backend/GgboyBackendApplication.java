@@ -5,12 +5,16 @@ import io.swagger.v3.oas.annotations.info.Info;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * GGBOY 后端应用的启动入口。
  * Starts the GGBOY backend application.
+ *
+ * <p>各个索引任务单独由配置启用。 The configuration enables each scheduled indexer independently.
  */
 @SpringBootApplication
+@EnableScheduling
 @OpenAPIDefinition(info = @Info(
         title = "GGBOY 后端 API",
         version = "v1",

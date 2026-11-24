@@ -63,28 +63,35 @@ public class ActivityController {
      * 按网络和可选条件筛选已索引交易活动，以单个业务事件为单位返回游标分页。
      * Returns a cursor page of indexed activity events on one network using optional filters.
      *
-     * <p>预计用于「交易活动」页（原型 {@code #activity}）的「活动记录」。进入页面及筛选或网络变化后
-     * 加载首屏，加载更多时保持筛选并传回 {@code nextCursor}，无需连接钱包。页面使用 {@code type}、
-     * {@code blockTime}、{@code participants} 和 {@code assets} 展示动作、时间、参与角色和资产变动。
-     * {@code signature} 与 {@code eventIndex} 一起标识该项记录。
-     * Planned for Activity Records on the Transaction Activity page (prototype {@code #activity}).
-     * Fetch the first page on entry or after filters or the network change. Pass back {@code nextCursor} with the
-     * same filters to load more. A wallet connection is unnecessary. Render the action, time, participant roles,
-     * and token movements from {@code type}, {@code blockTime}, {@code participants}, and {@code assets}.
-     * Together {@code signature} and {@code eventIndex} identify the record on the requested network.
+     * <p>「交易活动」页（{@code /activity}，原型 {@code #activity}）的「活动记录」在进入页面或
+     * 切换网络、分类及检索条件时加载首屏。加载更多时保持筛选并传回 {@code nextCursor}，无需连接钱包。
+     * 页面使用 {@code type}、{@code blockTime}、{@code participants} 和 {@code assets} 展示动作、时间、
+     * 参与角色和资产变动。通过 {@code signature} 与 {@code eventIndex} 打开该条记录的回执。
+     * Activity Records on the Transaction Activity page ({@code /activity}, prototype {@code #activity})
+     * loads the first page on entry or when the network, category, or search filters change.
+     * Pass back {@code nextCursor} with the same filters to load more. A wallet connection is unnecessary.
+     * The page renders the action, time, participant roles, and token movements from {@code type},
+     * {@code blockTime}, {@code participants}, and {@code assets}. The receipt uses {@code signature}
+     * and {@code eventIndex} to identify one record.
      *
-     * <p>策略金库页（原型 {@code #vault}）的「最近金库交易」在取得选中金库和已连接钱包后，
-     * 传 {@code subjectAddress}、{@code wallet}、两种存赎事件类型及 {@code limit=4}，只取最新一页。
-     * 切换钱包、金库或网络以及存赎确认后可以刷新，读取已同步到数据库的记录。
-     * Recent Vault Transactions on the Strategy Vault page (prototype {@code #vault}) loads the first four indexed
-     * deposits or redemptions once a vault and connected wallet are available. Send {@code subjectAddress},
-     * {@code wallet}, both deposit and redemption types, and {@code limit=4}. Refresh when the wallet, vault,
-     * or network changes or a deposit or redemption confirms.
+     * <p>切到「借贷」时传 {@code category=lending}，展示已同步的抵押、借款、还款、取回抵押品和提取出借资金。
+     * 列表按返回的 Mint 简称与交易精度显示实际资产金额，可用 {@code wallet} 筛选借款人或出借人。
+     * The Lending filter sends {@code category=lending} to show indexed collateral deposits, borrows,
+     * repayments, collateral withdrawals, and supply withdrawals. The list uses the registered mint symbol
+     * and recorded precision for actual amounts and can filter by borrower or supplier with {@code wallet}.
+     *
+     * <p>策略金库页（{@code /vault}，原型 {@code #vault}）的「最近金库交易」在取得选中金库和已连接钱包后，
+     * 传 {@code subjectAddress}、{@code wallet}、两种存赎事件类型及 {@code limit=4}，只取最新一页并展示时间和资产变动。
+     * 切换钱包、金库或网络以及存赎确认后会刷新。链上已确认但尚未同步时，页面短时间重复查询。
+     * Recent Vault Transactions on the Strategy Vault page ({@code /vault}, prototype {@code #vault}) loads the first
+     * four indexed deposits or redemptions once a vault and connected wallet are available, then displays timestamps
+     * and asset movements. It sends {@code subjectAddress}, {@code wallet}, both event types, and {@code limit=4}.
+     * The view refreshes on wallet, vault, or network changes or transaction confirmation, then briefly polls if indexing lags.
      *
      * @param parameters 查询参数。必填 {@code network}。可选 {@code wallet}、{@code subjectAddress}、
-     *        {@code signature}、可重复的 {@code type}、默认 20 的 {@code limit} 和首屏省略的 {@code cursor}。
+     *        {@code signature}、{@code category}、可重复的 {@code type}、默认 20 的 {@code limit} 和首屏省略的 {@code cursor}。
      *        Query parameters. Required {@code network}, optional {@code wallet}, {@code subjectAddress},
-     *        {@code signature}, repeatable {@code type}, {@code limit} defaulting to 20, and {@code cursor}
+     *        {@code signature}, {@code category}, repeatable {@code type}, {@code limit} defaulting to 20, and {@code cursor}
      *        omitted on the first page.
      * @param locale 根据请求协商出的错误消息语言。 Error language negotiated from the request.
      * @return HTTP 200 的活动页。参数无效返回 400，查询失败返回 500。
@@ -92,8 +99,8 @@ public class ActivityController {
      */
     @Operation(
             summary = "查询交易活动",
-            description = "按网络和筛选条件分页查询已索引的链上事件，用于活动记录和最近金库交易。 "
-                    + "Pages through indexed on-chain events for Activity Records and Recent Vault Transactions."
+            description = "按网络和筛选条件分页查询已索引的链上事件，支持金库存赎、借款操作和出借资金提取。 "
+                    + "Pages through indexed on-chain events, including vault deposits and redemptions, borrowing actions, and supply withdrawals."
     )
     @Parameters({
             @Parameter(name = "network", in = ParameterIn.QUERY, required = true,
@@ -108,6 +115,10 @@ public class ActivityController {
             @Parameter(name = "signature", in = ParameterIn.QUERY,
                     description = "按完整 Solana 交易签名筛选。 Filter by the full Solana transaction signature.",
                     schema = @Schema(type = "string")),
+            @Parameter(name = "category", in = ParameterIn.QUERY,
+                    description = "筛选业务分类，省略时查询全部。vault 为金库，lending 为借贷，strategy 为策略管理。 "
+                            + "Filter by business category. Omit to include all activities. Use vault, lending, or strategy.",
+                    schema = @Schema(type = "string", allowableValues = {"vault", "lending", "strategy"})),
             @Parameter(name = "type", in = ParameterIn.QUERY, style = ParameterStyle.FORM, explode = Explode.TRUE,
                     description = "大写事件代码，可重复传入并匹配任一项，例如 type=VAULT_DEPOSIT&type=VAULT_REDEEM。 "
                             + "Repeat this query parameter with uppercase event codes to match any of the supplied types.",
@@ -137,7 +148,8 @@ public class ActivityController {
                     parameters.getFirst("subjectAddress"),
                     parameters.getFirst("signature"),
                     parameters.get("type"),
-                    parameters.getFirst("limit")
+                    parameters.getFirst("limit"),
+                    parameters.getFirst("category")
             );
             cursor = ActivityCursor.decode(query, parameters.getFirst("cursor"));
         } catch (IllegalArgumentException exception) {
@@ -158,15 +170,19 @@ public class ActivityController {
      * 按网络、交易签名和事件序号查询单条已索引回执。
      * Loads one indexed receipt by network, transaction signature, and event index.
      *
-     * <p>预计用于「交易活动」页（原型 {@code #activity}）的「活动记录」和策略金库页（原型
-     * {@code #vault}）的「最近金库交易」。点击某行的「查看回执」或直接打开回执链接时调用，
-     * 使用活动记录的 {@code network}、{@code signature} 和 {@code eventIndex}，无需连接钱包。
-     * 回执使用交易 slot、区块时间、完整的参与方角色和资产变动展示该事件的结果。
-     * Planned for Activity Records on Transaction Activity (prototype {@code #activity}) and Recent Vault
-     * Transactions on Strategy Vault (prototype {@code #vault}). Call on View Receipt for a row or when
-     * opening its link directly, passing the record's {@code network}, {@code signature}, and {@code eventIndex}.
-     * A wallet connection is unnecessary. Render the outcome with the transaction slot, block time, full
-     * participant roles, and asset movements.
+     * <p>「交易活动」页（{@code /activity}，原型 {@code #activity}）的「活动记录」中点击「查看回执」
+     * 或直接打开回执路径 {@code /activity/{signature}/events/{eventIndex}} 时调用。使用记录的
+     * {@code network}、{@code signature} 和 {@code eventIndex}，无需连接钱包。
+     * 回执使用交易 slot、区块时间、完整的参与方角色和资产变动展示该事件的结果。策略金库的
+     * 「最近金库交易」计划复用该回执路径。
+     * Activity Records on Transaction Activity ({@code /activity}, prototype {@code #activity}) calls this
+     * endpoint when View Receipt is selected or the receipt route is opened directly. Use the record's
+     * {@code network}, {@code signature}, and {@code eventIndex}. A wallet connection is unnecessary.
+     * The receipt shows the transaction slot, block time, all participant roles, and asset movements.
+     * Recent Vault Transactions will reuse the receipt route.
+     *
+     * <p>「借贷」活动中的出借提取回执展示出借人及资金池实际支付的代币金额、Mint 和精度。
+     * A supply withdrawal receipt under Lending shows the supplier and the actual payout amount, token mint, and decimals.
      *
      * @param signature Base58 编码的 64 字节 Solana 交易主签名。 Base58-encoded 64-byte Solana primary transaction signature.
      * @param eventIndex 交易内从零开始的十进制事件序号，范围 0 至 2147483647。 Zero-based decimal event index from 0 through 2147483647.

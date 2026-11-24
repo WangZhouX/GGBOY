@@ -3,19 +3,54 @@ package io.ggboy.common.utils;
 import java.math.BigInteger;
 import java.util.Objects;
 
-/** 校验 Solana 公钥和交易签名的文本编码。 / Validates the text encoding of Solana public keys and transaction signatures. */
+/** 转换 Solana 公钥，并校验公钥和交易签名的文本编码。 / Encodes Solana public keys and validates public keys and transaction signatures. */
 public final class SolanaAddressUtil {
 
     /** Solana 公钥和签名使用的 Base58 字母表。 / Base58 alphabet for Solana public keys and signatures. */
     private static final String BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-    /** 解码时使用的进位基数。 / Numeric radix used for decoding. */
+    /** 编解码使用的进位基数。 / Numeric radix used for encoding and decoding. */
     private static final BigInteger RADIX = BigInteger.valueOf(BASE58.length());
 
     /**
      * 防止实例化仅包含静态方法的工具类。 / Prevents instantiation of the static utility.
      */
     private SolanaAddressUtil() {
+    }
+
+    /**
+     * 将 32 字节公钥编码为规范的 Solana Base58 文本。
+     * Encodes a 32-byte public key as canonical Solana Base58 text.
+     *
+     * @param publicKey 公钥原始字节，按链上编码顺序。 Raw public key bytes in wire order.
+     * @return 保留前导零字节的 Base58 公钥。 Base58 public key preserving leading zero bytes.
+     * @throws IllegalArgumentException 输入长度不为 32 字节。 Input is not 32 bytes long.
+     */
+    public static String encodePublicKey(byte[] publicKey) {
+        Objects.requireNonNull(publicKey, "publicKey");
+        if (publicKey.length != 32) {
+            throw new IllegalArgumentException("publicKey must contain 32 bytes");
+        }
+
+        /** 无符号大端数，以及从低位到高位积累的 Base58 字符。 Unsigned big-endian value and Base58 digits accumulated from lowest to highest. */
+        BigInteger value = new BigInteger(1, publicKey);
+        StringBuilder reversed = new StringBuilder();
+        while (value.signum() != 0) {
+            /** 商为剩余高位，余数为当前 Base58 数位。 The quotient holds higher digits and the remainder selects the current Base58 digit. */
+            BigInteger[] division = value.divideAndRemainder(RADIX);
+            reversed.append(BASE58.charAt(division[1].intValueExact()));
+            value = division[0];
+        }
+
+        // 整数编码会丢掉原公钥的前导零字节，将其逐个恢复为 Base58 的 '1'。
+        // Integer encoding drops leading zero bytes. Restore each one as a Base58 '1'.
+        for (byte leading : publicKey) {
+            if (leading != 0) {
+                break;
+            }
+            reversed.append('1');
+        }
+        return reversed.reverse().toString();
     }
 
     /**

@@ -62,15 +62,21 @@ public class LendingMarketController {
      * 查询指定网络的市场目录及每个市场的最新快照。
      * Lists registered lending markets and the latest snapshot of each market on the requested network.
      *
-     * <p>预计用于借贷市场「市场概况」页（原型 {@code #lend}）的「资金池现况」。页面进入、刷新或切换网络时
-     * 调用，无需连接钱包。显示当前市场的 {@code latestSnapshot} 中的 {@code cashRaw}、
-     * {@code totalDebtRaw}、{@code utilizationBps}、{@code borrowRateBps}、{@code supplyRateBps}。
-     * 用 {@code debtAsset.decimals} 换算金额，用基点换算百分比。空快照表示尚未采集。
-     * Planned for Pool Overview on the lending Market Overview page (prototype {@code #lend}). Fetch on entry,
-     * refresh, or network change without requiring a connected wallet. Render the selected market's
-     * {@code latestSnapshot} using {@code cashRaw}, {@code totalDebtRaw}, {@code utilizationBps},
-     * {@code borrowRateBps}, and {@code supplyRateBps}. Format amounts with {@code debtAsset.decimals}
-     * and convert basis points to percentages. A null snapshot means the pool has not been observed.
+     * <p>借贷市场首页（{@code /lend}，原型 {@code #lend}）的「资金池现况」在进入、刷新或切换网络时调用，
+     * 无需连接钱包。显示所选市场 {@code latestSnapshot} 的池内现金、可借总额、未偿债务、资金利用率和借贷年化利率。
+     * 用 {@code debtAsset.decimals} 换算金额，用基点换算百分比。空快照表示已登记但尚未采集，页面保留真实零值。
+     * Pool Overview on the lending home page ({@code /lend}, prototype {@code #lend}) fetches on entry, refresh, or
+     * network change without requiring a connected wallet. It renders the selected market's latest pool cash,
+     * available borrowing amount, outstanding debt, utilization, and borrowing and supply APRs.
+     * Amounts use {@code debtAsset.decimals} and basis points become percentages. A null snapshot is a registered pool
+     * awaiting its first observation; actual zero values remain visible.
+     *
+     * <p>已登记的 GGBOY Devnet 市场使用此响应的程序、市场和 Mint 地址核对链上状态。
+     * 「资金池现况」在链上观测达到快照 slot 后使用链上现金。「出借 mockUSDC」与「我的借款」下的操作页
+     * （{@code /lend/supply/deposit} 与 {@code /lend/borrow/{action}}）也在进入时读取目录，供签名前核对市场和 Mint。
+     * For the registered GGBOY Devnet market, Pool Overview uses live cash once the chain observation reaches its
+     * indexed slot. The supply and borrowing operation pages ({@code /lend/supply/deposit} and
+     * {@code /lend/borrow/{action}}) also load the registry on entry to check the market and mint before signing.
      *
      * @param network 必填，使用 {@code localnet} 或 {@code devnet}。
      *        Required network identifier, either {@code localnet} or {@code devnet}.
@@ -113,26 +119,25 @@ public class LendingMarketController {
      * 查询一个市场中指定钱包最新采集的借款及出借仓位。
      * Returns the latest observed borrowing and supplying position for one market and wallet.
      *
-     * <p>预计用于「我的借款」（原型 {@code #lend/borrow}）的「借款仓位」和「额度与清算条件」。
-     * 用 {@code collateralRaw}、{@code debtRaw}、{@code healthFactor} 和 {@code isLiquidatable} 展示仓位，
-     * 用 {@code maxBorrowRaw}、{@code maxCollateralWithdrawRaw} 及 {@code marketRisk} 展示额度和风险条件。
-     * Planned for Borrowing Position and Borrowing Limits and Liquidation Conditions on My Borrowing
-     * (prototype {@code #lend/borrow}). Use {@code collateralRaw}, {@code debtRaw}, {@code healthFactor},
-     * and {@code isLiquidatable} to show the position, and {@code maxBorrowRaw}, {@code maxCollateralWithdrawRaw},
-     * and {@code marketRisk} for limits and risk parameters.
+     * <p>「我的借款」（{@code /lend/borrow}）的「借款仓位」使用 {@code collateralRaw}、{@code debtRaw}、
+     * {@code healthFactor} 和 {@code isLiquidatable}。「额度与清算条件」使用 {@code maxBorrowRaw}、
+     * {@code maxCollateralWithdrawRaw} 和 {@code marketRisk}。
+     * Borrowing Position on My Borrowing ({@code /lend/borrow}) uses {@code collateralRaw}, {@code debtRaw},
+     * {@code healthFactor}, and {@code isLiquidatable}. Borrowing Limits and Liquidation Conditions uses
+     * {@code maxBorrowRaw}, {@code maxCollateralWithdrawRaw}, and {@code marketRisk}.
      *
-     * <p>「我的出借」（原型 {@code #lend/supply}）的「个人出借资金」使用 {@code supplySharesRaw}、
+     * <p>「我的出借」（{@code /lend/supply}）的「个人出借资金」使用 {@code supplySharesRaw}、
      * {@code suppliedValueRaw}、{@code maxSupplyWithdrawRaw} 和 {@code maxSupplyWithdrawSharesRaw}。
-     * 钱包可用余额另由前端通过 RPC 读取。
-     * Personal Supplied Funds on My Supply (prototype {@code #lend/supply}) uses {@code supplySharesRaw},
+     * Personal Supplied Funds on My Supply ({@code /lend/supply}) uses {@code supplySharesRaw},
      * {@code suppliedValueRaw}, {@code maxSupplyWithdrawRaw}, and {@code maxSupplyWithdrawSharesRaw}.
-     * Fetch the wallet's available token balance separately through RPC.
      *
-     * <p>两页均在取得选中市场和已连接钱包的公钥后调用，切换市场、钱包或网络及相关交易确认后重查。
-     * 用观测 slot 和时间提示同步状态。空快照表示钱包尚未采集，空额度表示当前不可估算。
-     * On both pages, query once the selected market and connected wallet keys are available. Refetch on changes
-     * to the market, wallet or network and after a related transaction confirms. Display the observation slot and
-     * time for sync status. A null snapshot means unobserved. A null limit means no current estimate.
+     * <p>已登记的 GGBOY Devnet 市场在「我的借款」和「我的出借」直接读取已最终确认的链上仓位。
+     * 其他市场的仓位页在确定已登记市场和连接钱包公钥后调用此接口，切换市场、钱包或网络时重查。
+     * 观测时间用于标注数据来源。空快照表示钱包尚未采集，空额度表示当前不可估算，零值表示已确认的数值。
+     * My Borrowing and My Supply read finalized on-chain positions for the registered GGBOY Devnet market.
+     * For other markets these pages call this endpoint after selecting a registered market and connecting a wallet,
+     * then requery on market, wallet, or network changes. Observations identify when data was read.
+     * A null snapshot means unobserved, a null limit means unavailable, and zero is a known value.
      *
      * @param address 市场状态账户的 32 字节 Base58 公钥。 Base58 market state public key decoding to 32 bytes.
      * @param wallet 仓位持有人的 32 字节 Base58 公钥。 Base58 position-owner public key decoding to 32 bytes.

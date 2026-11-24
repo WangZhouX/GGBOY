@@ -15,3 +15,5 @@
 [SolanaAddressUtil](SolanaAddressUtil.java) 的 `requirePublicKey(address, fieldName)` 校验钱包、账户和 Mint 地址是否为恰好编码 32 字节的 Base58 文本。调用方继续按业务需要核对网络与实际账户。
 
 同一工具的 `requireSignature(signature, fieldName)` 校验交易主签名是否为恰好编码 64 字节的 Base58 文本，用于交易活动的筛选与游标边界。
+
+同一工具的 encodePublicKey 将链上账户布局中的 32 字节公钥转换为保留前导零的规范 Base58 文本。

@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import io.ggboy.backend.api.ActivityCursor;
 import io.ggboy.backend.api.ActivityQuery;
 import io.ggboy.backend.api.ActivityResponse;
+import io.ggboy.backend.entity.AssetMintDO;
 import io.ggboy.backend.entity.ChainEventAssetDO;
 import io.ggboy.backend.entity.ChainEventDO;
 import io.ggboy.backend.entity.ChainEventKey;
 import io.ggboy.backend.entity.ChainTransactionDO;
+import io.ggboy.backend.mapper.AssetMintMapper;
 import io.ggboy.backend.mapper.ChainEventAssetMapper;
 import io.ggboy.backend.mapper.ChainEventMapper;
 import io.ggboy.backend.mapper.ChainEventParticipantMapper;
@@ -48,6 +50,9 @@ public class ChainEventServiceImpl extends ServiceImpl<ChainEventMapper, ChainEv
     /** 按选定事件读取完整的资产变动。 Loads all asset movements for the selected events. */
     private final ChainEventAssetMapper assetMapper;
 
+    /** 按网络和 Mint 读取可选的资产简称。 Loads optional asset symbols by network and mint. */
+    private final AssetMintMapper assetMintMapper;
+
     /**
      * 注入活动列表与回执查询的依赖。业务事件查询使用继承的基础 Mapper。
      * Injects activity list and receipt dependencies. Event reads use the inherited base mapper.
@@ -55,15 +60,18 @@ public class ChainEventServiceImpl extends ServiceImpl<ChainEventMapper, ChainEv
      * @param transactionMapper 父交易查询。 Parent transaction queries.
      * @param participantMapper 事件参与方查询。 Event participant queries.
      * @param assetMapper 事件资产变动查询。 Event asset movement queries.
+     * @param assetMintMapper 登记资产简称的批量查询。 Batch queries for registered asset symbols.
      */
     public ChainEventServiceImpl(
             ChainTransactionMapper transactionMapper,
             ChainEventParticipantMapper participantMapper,
-            ChainEventAssetMapper assetMapper
+            ChainEventAssetMapper assetMapper,
+            AssetMintMapper assetMintMapper
     ) {
         this.transactionMapper = transactionMapper;
         this.participantMapper = participantMapper;
         this.assetMapper = assetMapper;
+        this.assetMintMapper = assetMintMapper;
     }
 
     /**
@@ -185,12 +193,12 @@ public class ChainEventServiceImpl extends ServiceImpl<ChainEventMapper, ChainEv
             List<ActivityCandidate> matches,
             int fetchCount
     ) {
-        // 事件先应用主体和类型条件，按签名分组后保留 Mapper 的事件序号倒序。
-        // Apply subject and type filters, then preserve the mapper's descending event order within each signature.
+        // 事件先应用主体、类型和分类条件，按签名分组后保留 Mapper 的事件序号倒序。
+        // Apply subject, type, and category filters before grouping events by signature in descending event order.
         String network = query.network().wireValue();
         List<String> signatures = transactions.stream().map(ChainTransactionDO::signature).toList();
         Map<String, List<ChainEventDO>> eventsBySignature = getBaseMapper()
-                .selectActivityCandidates(network, signatures, query.subjectAddress(), query.types())
+                .selectActivityCandidates(network, signatures, query.subjectAddress(), query.types(), query.category())
                 .stream()
                 .collect(Collectors.groupingBy(ChainEventDO::signature));
         if (eventsBySignature.isEmpty()) {
@@ -254,12 +262,19 @@ public class ChainEventServiceImpl extends ServiceImpl<ChainEventMapper, ChainEv
                         row -> new ChainEventKey(row.signature(), row.eventIndex()),
                         Collectors.mapping(
                                 row -> new ActivityResponse.Participant(row.walletAddress(), row.role()), Collectors.toList())));
-        Map<ChainEventKey, List<ActivityResponse.Asset>> assetsByKey = assetMapper
-                .selectByEventKeys(network, eventKeys)
+        // 批量补齐本页涉及的 Mint 简称，金额和精度继续使用交易记录中的值。
+        // Batch-load symbols for mints on this page while preserving the recorded amounts and decimals.
+        List<ChainEventAssetDO> assetRows = assetMapper.selectByEventKeys(network, eventKeys);
+        Set<String> mintAddresses = assetRows.stream().map(ChainEventAssetDO::mintAddress).collect(Collectors.toSet());
+        Map<String, String> symbolsByMint = assetMintMapper.selectByNetworkAndMintAddresses(network, mintAddresses)
                 .stream()
+                .filter(mint -> mint.symbol() != null && !mint.symbol().isBlank())
+                .collect(Collectors.toMap(AssetMintDO::mintAddress, AssetMintDO::symbol));
+        Map<ChainEventKey, List<ActivityResponse.Asset>> assetsByKey = assetRows.stream()
                 .collect(Collectors.groupingBy(
                         row -> new ChainEventKey(row.signature(), row.eventIndex()),
-                        Collectors.mapping(ChainEventServiceImpl::toActivityAsset, Collectors.toList())));
+                        Collectors.mapping(
+                                row -> toActivityAsset(row, symbolsByMint.get(row.mintAddress())), Collectors.toList())));
 
         // 按查询顺序构建 DTO，缺少明细时返回可直接迭代的空列表。
         // Build DTOs in query order and use empty lists for absent details.
@@ -271,15 +286,16 @@ public class ChainEventServiceImpl extends ServiceImpl<ChainEventMapper, ChainEv
     }
 
     /**
-     * 保留交易时记录的 Mint、原始最小单位金额和小数位。
-     * Preserves the mint, base-unit amount and decimals recorded with the event.
+     * 保留交易时记录的 Mint、原始最小单位金额和小数位，附上可用的登记简称。
+     * Preserves the recorded mint, base-unit amount and decimals, and adds the registered symbol when available.
      *
      * @param row 事件的一条资产变动记录。 One asset movement recorded for an event.
+     * @param symbol 当前网络的 Mint 登记简称，无可用简称时为空。 Registered symbol for the mint on this network, or null when unavailable.
      * @return 携带完整十进制金额的资产变动。 Asset movement with its full-precision decimal amount.
      */
-    private static ActivityResponse.Asset toActivityAsset(ChainEventAssetDO row) {
+    private static ActivityResponse.Asset toActivityAsset(ChainEventAssetDO row, String symbol) {
         return new ActivityResponse.Asset(
-                row.legIndex(), row.mintAddress(), row.decimals(), row.amountRaw().toString(), row.legType());
+                row.legIndex(), row.mintAddress(), row.decimals(), row.amountRaw().toString(), row.legType(), symbol);
     }
 
     /**

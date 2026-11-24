@@ -16,10 +16,40 @@ import java.util.regex.Pattern;
  * @param signature 可选的完整 Solana 交易签名。 Optional complete Solana transaction signature.
  * @param types 匹配任一类型，空列表表示全部类型。 Matches any listed type. An empty list matches all types.
  * @param limit 每页最多返回 1 至 100 条事件。 Maximum events returned per page, from 1 to 100.
+ * @param category 可选的业务分类，与精确类型筛选同时生效。 Optional category applied together with exact type filters.
  */
 public record ActivityQuery(
-        SolanaNetwork network, String wallet, String subjectAddress, String signature, List<String> types, int limit
+        SolanaNetwork network, String wallet, String subjectAddress, String signature, List<String> types, int limit,
+        Category category
 ) {
+
+    /** 交易活动页的业务分类，未指定时查询全部活动。 Activity page categories. An omitted category includes all activities. */
+    public enum Category {
+        /** 金库模块中除策略管理之外的活动。 Vault module activities outside strategy management. */
+        VAULT,
+        /** 借贷模块活动。 Lending module activities. */
+        LENDING,
+        /** 金库模块中以 STRATEGY_ 标识的活动。 Vault module activities identified by STRATEGY_. */
+        STRATEGY;
+
+        /**
+         * 解析分类参数，省略时查询全部活动。
+         * Parses the optional wire category, with omission allowing all activities.
+         *
+         * @param value 原始分类参数，未提供时为空引用。 Raw category parameter, or null if omitted.
+         * @return 已校验的分类，省略时为空引用。 Validated category, or null when omitted.
+         * @throws IllegalArgumentException 提供了不支持的分类。 An unsupported category was supplied.
+         */
+        private static Category parse(String value) {
+            return switch (value) {
+                case null -> null;
+                case "vault" -> VAULT;
+                case "lending" -> LENDING;
+                case "strategy" -> STRATEGY;
+                default -> throw new IllegalArgumentException("Invalid activity category");
+            };
+        }
+    }
 
     /** 省略 limit 时返回的最大事件数。 Maximum number of events when limit is omitted. */
     private static final int DEFAULT_LIMIT = 20;
@@ -46,6 +76,7 @@ public record ActivityQuery(
      * @param signature 可选的完整交易签名。 Optional complete transaction signature.
      * @param types 按 OR 匹配的原始类型列表，空引用与空列表均无类型限制。 Raw OR-ed types, with null or empty meaning no restriction.
      * @param limit 单页请求的最大事件数。 Maximum number of requested events per page.
+     * @param category 已解析的可选业务分类。 Parsed optional business category.
      * @throws IllegalArgumentException 公钥、签名、类型或页长无效。 A public key, signature, type, or page size is invalid.
      */
     public ActivityQuery {
@@ -84,6 +115,27 @@ public record ActivityQuery(
     public static ActivityQuery parse(
             String network, String wallet, String subjectAddress, String signature, List<String> types, String limit
     ) {
+        return parse(network, wallet, subjectAddress, signature, types, limit, null);
+    }
+
+    /**
+     * 解析活动列表请求并校验可选业务分类。
+     * Parses activity list parameters and validates the optional business category.
+     *
+     * @param network 原始网络参数，必须为 localnet 或 devnet。 Raw network value, either localnet or devnet.
+     * @param wallet 可选的钱包公钥文本。 Optional wallet public key text.
+     * @param subjectAddress 可选的业务状态账户公钥文本。 Optional business state account public key text.
+     * @param signature 可选的完整交易签名文本。 Optional complete transaction signature text.
+     * @param types 重复传入的精确事件类型。 Repeated exact event types.
+     * @param limit 原始的每页条数，空引用表示省略。 Raw page size, or null if omitted.
+     * @param category 可选的分类参数，省略时查询全部活动。 Optional category parameter, omitted for all activities.
+     * @return 已校验的活动筛选条件。 Validated activity filters.
+     * @throws IllegalArgumentException 筛选值或页长无效。 A filter value or page size is invalid.
+     */
+    public static ActivityQuery parse(
+            String network, String wallet, String subjectAddress, String signature, List<String> types, String limit,
+            String category
+    ) {
         // 空字符串是显式无效页长。仅未提交 limit 时使用默认条数。
         // An explicit empty page size is invalid. Use the default only when limit is absent.
         if (limit != null && !LIMIT_TEXT.matcher(limit).matches()) {
@@ -91,7 +143,7 @@ public record ActivityQuery(
         }
         return new ActivityQuery(
                 SolanaNetwork.fromWireValue(network), wallet, subjectAddress, signature, types,
-                limit == null ? DEFAULT_LIMIT : Integer.parseInt(limit)
+                limit == null ? DEFAULT_LIMIT : Integer.parseInt(limit), Category.parse(category)
         );
     }
 

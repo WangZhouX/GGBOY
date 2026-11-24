@@ -55,4 +55,14 @@ public record VaultDO(
     public String getVaultAddress() {
         return vaultAddress;
     }
+
+    /**
+     * 提供金库程序地址的 Lambda 访问器，用于查找本次索引跟踪的金库。
+     * Exposes the vault program address for Lambda lookups of vaults tracked by the indexer.
+     *
+     * @return 金库程序的公开地址。 Public address of the vault program.
+     */
+    public String getProgramId() {
+        return programId;
+    }
 }

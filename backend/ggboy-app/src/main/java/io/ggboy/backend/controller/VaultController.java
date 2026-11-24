@@ -111,13 +111,15 @@ public class VaultController {
      * Pages through a registered vault's snapshot history in descending numeric slot order.
      *
      * <p>策略金库页 {@code /vault} 的「每份净值走势」在取得选中金库地址后读取历史，切换金库或网络时读取对应查询。
-     * 点击「加载更早数据」时传入上次返回的 {@code nextCursor}。点击「刷新净值走势」时从首屏重查，整个区域无需连接钱包。
+     * Devnet 前台仅加载首屏时每分钟重查。点击「加载更早数据」时传入上次返回的 {@code nextCursor}，
+     * 展开历史后可用「刷新净值走势」重查已加载的页。整个区域无需连接钱包。
      * 按 {@code observedAt} 的时间正序绘图，用 {@code navRaw} 与 {@code totalSharesRaw} 按各自 Mint 精度换算每份净值。
      * 缺少净值或总份额为零时保留图表缺口。
      * The NAV per Share History chart on {@code /vault} reads history after a vault is selected and switches
-     * queries when the vault or network changes. Load Older Data passes the previous {@code nextCursor}.
-     * Refresh NAV History re-fetches from the first page. No wallet connection is required. Plot {@code observedAt}
-     * chronologically and calculate NAV per share from {@code navRaw} and {@code totalSharesRaw} using their
+     * queries when the vault or network changes. The foreground Devnet view refreshes every minute while only
+     * the first page is loaded. Load Older Data passes the previous {@code nextCursor}. Refresh NAV History
+     * reloads expanded history. No wallet connection is required. Plot {@code observedAt} chronologically and
+     * calculate NAV per share from {@code navRaw} and {@code totalSharesRaw} using their
      * mint decimals. Leave a gap when NAV is unavailable or outstanding shares are zero.
      *
      * @param address 金库状态账户的 32 字节 Base58 公钥。 Base58 public key of the vault state account, decoding to 32 bytes.

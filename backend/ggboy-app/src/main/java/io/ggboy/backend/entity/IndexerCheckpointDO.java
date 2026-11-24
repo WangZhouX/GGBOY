@@ -32,4 +32,54 @@ public record IndexerCheckpointDO(
         @TableField("last_slot") BigInteger lastSlot,
         @TableField("updated_at") OffsetDateTime updatedAt
 ) {
+
+    /**
+     * 提供复合主键中网络字段的 Lambda 访问器。
+     * Exposes the network field of the composite key for Lambda predicates.
+     *
+     * @return 小写 Solana 网络代码。 Lowercase Solana network code.
+     */
+    public String getNetwork() {
+        return network;
+    }
+
+    /**
+     * 提供复合主键中程序字段的 Lambda 访问器。
+     * Exposes the program field of the composite key for Lambda predicates.
+     *
+     * @return 被跟踪程序的公开地址。 Public address of the tracked program.
+     */
+    public String getProgramId() {
+        return programId;
+    }
+
+    /**
+     * 提供处理边界签名的 Lambda 访问器。
+     * Exposes the processed boundary signature for Lambda comparisons and updates.
+     *
+     * @return 边界交易的主签名，初始为空。 Primary signature of the frontier transaction, initially null.
+     */
+    public String getLastSignature() {
+        return lastSignature;
+    }
+
+    /**
+     * 提供处理边界 slot 的 Lambda 访问器。
+     * Exposes the processed boundary slot for Lambda comparisons and updates.
+     *
+     * @return 对应边界的已最终确认 slot，初始为空。 Finalized slot of the frontier transaction, initially null.
+     */
+    public BigInteger getLastSlot() {
+        return lastSlot;
+    }
+
+    /**
+     * 提供处理边界更新时间的 Lambda 访问器。
+     * Exposes the frontier update timestamp for Lambda updates.
+     *
+     * @return 最近一次推进时间，含时区偏移。 Last advancement timestamp with a UTC offset.
+     */
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
+    }
 }

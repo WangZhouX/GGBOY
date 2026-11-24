@@ -46,4 +46,18 @@ public interface VaultMapper extends BaseMapper<VaultDO> {
                 .eq(VaultDO::getNetwork, network)
                 .eq(VaultDO::getVaultAddress, vaultAddress));
     }
+
+    /**
+     * 检查指定网络和程序是否有登记的金库，避免索引器轮询未配置的数据库。
+     * Checks for any registered vault of this network and program, so the indexer can skip unconfigured databases.
+     *
+     * @param network 已校验的 Solana 网络代码。 Validated Solana network code.
+     * @param programId 被跟踪金库程序的公开地址。 Public address of the tracked vault program.
+     * @return 至少有一个匹配的登记时为真。 True when at least one matching registration exists.
+     */
+    default boolean existsByNetworkAndProgram(String network, String programId) {
+        return exists(Wrappers.lambdaQuery(VaultDO.class)
+                .eq(VaultDO::getNetwork, network)
+                .eq(VaultDO::getProgramId, programId));
+    }
 }

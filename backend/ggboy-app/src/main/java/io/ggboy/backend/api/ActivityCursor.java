@@ -121,6 +121,11 @@ public record ActivityCursor(BigInteger slot, String signature, int eventIndex) 
         String scope = String.join(":", query.network().wireValue(), Objects.toString(query.wallet(), ""),
                 Objects.toString(query.subjectAddress(), ""), Objects.toString(query.signature(), ""),
                 String.join(",", query.types()));
+        // 只有显式指定分类时才扩展摘要输入，让已有的无分类游标继续有效。
+        // Extend the digest input only for explicit categories, preserving existing cursors without a category.
+        if (query.category() != null) {
+            scope += ":category:" + query.category().name();
+        }
         try {
             // 每次调用独立创建摘要对象，避免在并发请求之间共享状态。
             // Create a fresh digest per call to avoid sharing state across concurrent requests.
