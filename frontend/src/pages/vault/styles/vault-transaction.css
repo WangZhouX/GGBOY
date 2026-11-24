@@ -3,13 +3,37 @@
 .vault-transaction {
   display: grid;
   gap: 1rem;
-  margin-top: 2.15rem;
 }
 
-.vault-transaction h2 {
+.vault-transaction__form h2 {
   margin: 0;
-  font-size: 1.2rem;
-  font-weight: 690;
+  font-size: 1.08rem;
+  font-weight: 680;
+}
+
+/* 每一步都显示当前状态，窄屏允许文字换行。 */
+/* Show the current step while letting labels wrap on narrow screens. */
+.vault-transaction__steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vault-transaction__steps li {
+  border-bottom: 1px solid var(--border);
+  padding: 0.55rem 0.15rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.vault-transaction__steps li[aria-current='step'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 670;
 }
 
 .vault-transaction__form,
@@ -80,6 +104,19 @@
   background: var(--accent);
   color: #0c2118;
   font-weight: 670;
+}
+
+/* 复核和重新发起各有明确入口，确认按钮始终位于返回修改之后。 */
+/* Review and restarting have distinct controls, with confirmation after returning to edit. */
+.vault-transaction__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.vault-transaction__new {
+  justify-self: start;
 }
 
 .vault-transaction__form button:enabled {

@@ -10,4 +10,6 @@
 
 [vault](vault/README.md) 使用公开部署配置和 Anchor IDL 读取 Devnet 金库或构造存入和赎回指令。Phantom 适配层确认当前账户后请求签名和广播，金库客户端根据签名检查交易结果。[browserBuffer.ts](browserBuffer.ts) 在应用初始化时提供 SPL Token 编解码所需的浏览器 Buffer 实现。
 
-业务页面的快照、活动和回执通过 [HTTP 客户端](../shared/api/README.md) 读取。钱包配置、链上交易和后端索引各由对应模块处理。
+[lending](lending/README.md) 对已登记的 GGBOY Devnet 借贷市场读取并核验池内现金、出借仓位、借款仓位与测试价格。前端构造并模拟出借和四类借款操作，再通过 Phantom 请求签名和广播。交易回执和最近借款操作来自已最终确认的链上事件。
+
+业务页面的索引快照、活动和历史回执通过 [HTTP 客户端](../shared/api/README.md) 读取。钱包配置、链上交易和后端索引各由对应模块处理。

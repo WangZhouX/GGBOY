@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { VaultListItem } from '../../features/vault/api/listVaults';
 import { depositDecimals, formatDepositInput, quoteVaultDeposit } from '../../features/vault/depositQuote';
 import { quoteVaultRedeem } from '../../features/vault/redeemQuote';
+import { recordVaultActivityConfirmation } from '../../features/vault/useVaultRecentActivity';
 import { formatVaultAmount } from '../../features/vault/vaultAmounts';
 import { usePhantomWallet } from '../../solana/phantomWallet';
 import { prepareVaultDeposit } from '../../solana/vault/depositVault';
@@ -44,6 +45,21 @@ interface ActionQuote {
   /** 写入指令的最低到账最小单位数。 Minimum receivable base units encoded in the instruction. */
   minimumRaw: bigint;
 }
+
+/** 用户复核过的报价与发起它的操作、金库和钱包绑定。 Binds a reviewed quote to its action, vault, and wallet. */
+interface ReviewedVaultQuote {
+  /** 用户正在操作的存入或赎回。 Deposit or redemption the user is reviewing. */
+  action: VaultAction;
+  /** 复核操作时的金库地址。 Vault address at review time. */
+  vaultAddress: string;
+  /** 复核操作时的签名钱包公钥。 Signing wallet public key at review time. */
+  walletAddress: string;
+  /** 用户已核对的最小单位金额。 User-reviewed amounts in base units. */
+  quote: ActionQuote;
+}
+
+/** 步骤标签与交易表单的填写、复核及钱包确认阶段对应。 Step labels for amount entry, review, and wallet confirmation. */
+const vaultFlowSteps = ['amountStep', 'reviewStep', 'confirmStep'] as const;
 
 /** 两种报价允许的错误代码与各自界面文案对应。 Quote errors for the two actions match their respective interface messages. */
 type ActionQuoteError = Extract<
@@ -219,8 +235,10 @@ function walletStatus(error: unknown): BeforeSignature {
 }
 
 /**
- * 展示现金金库报价，使用同一流程签名和确认存入或赎回。
- * Present a cash-vault quote and use one workflow to sign and confirm a deposit or redemption.
+ * 先填写现金金库交易数量，再核对预计变动，最后请求钱包签名并核对结果。
+ * Collect a cash-vault amount, review estimated movements, then request wallet approval and check the result.
+ *
+ * @param props 存赎类型、金库读数、读取状态和成交后的刷新方法。 Action, vault reading, read status, and post-confirmation refresh.
  */
 export function VaultTransactionSection({
   action, state, vault, isReadPending = false, isReadError = false, refreshAfterDeposit: refreshAfterTransaction,
@@ -228,7 +246,7 @@ export function VaultTransactionSection({
   /** 界面文案与金额格式使用当前的中英文语言。 UI messages and amounts use the selected Chinese or English locale. */
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
-  /** 每个操作独立的文案和元素 ID，以便同一页的两张表单同时存在。 Separate message and element namespaces allow both forms on one page. */
+  /** 每个操作使用对应的词汇和表单元素 ID。 Each operation uses action-specific copy and form element IDs. */
   const redeem = action === 'redeem';
   const message = redeem ? 'vaultRedeem.' : 'vaultDeposit.';
   const formId = 'vault-' + action;
@@ -240,8 +258,8 @@ export function VaultTransactionSection({
   const vaultAddress = vault?.address;
   /** 用户输入是普通十进制文本，保留编辑中的小数点和尾零。 Decimal input text preserves the in-progress dot and trailing zeroes. */
   const [amount, setAmount] = useState('');
-  /** 当前送签报价单独保存，读数刷新时也展示用户实际确认的最低到账金额。 Keep the signing quote so a refreshed read does not change the minimum shown to the user. */
-  const [signingQuote, setSigningQuote] = useState<ActionQuote | null>(null);
+  /** 用户打开复核时冻结的报价，仅可由原钱包在原金库确认。 Quote frozen when the user enters review, tied to the original vault and wallet. */
+  const [reviewed, setReviewed] = useState<ReviewedVaultQuote | null>(null);
   /** 离开页面后可以继续确认已签名交易，但不能弹出尚未请求的 Phantom 窗口。 Leaving permits confirmation of a signed transaction but prevents opening a new Phantom prompt. */
   const mounted = useRef(false);
   useEffect(() => {
@@ -274,9 +292,24 @@ export function VaultTransactionSection({
   const walletState = isReadError ? undefined : state?.wallet;
   const balanceRaw = redeem ? walletState?.redeemableSharesRaw : walletState?.assetBalanceRaw;
   const receivingFrozen = redeem && walletState?.receivableAssetBalanceRaw === null;
-  /** 签名和确认期间保持报价稳定，其他情况使用同一读数中的现金、份额与余额。 Freeze the quote while signing and confirming; otherwise use cash, supply, and balances from the same read. */
+  /** 即时报价使用同一份读数中的现金、份额及余额。 The live quote uses cash, supply, and balances from one read. */
   const quote = state && balanceRaw !== undefined && !receivingFrozen ? quoteVaultAction(action, amount, state) : null;
-  const preview = isActionPending(status) ? signingQuote : quote;
+  /** 切换钱包、金库或操作后不复用旧报价。 Ignore reviewed quotes from another wallet, vault, or action. */
+  const reviewedQuote = reviewed && reviewed.action === action && reviewed.vaultAddress === vaultAddress
+    && reviewed.walletAddress === walletAddress ? reviewed.quote : null;
+  /** 已签名恢复、提交中和已确认的交易都处于确认步骤。 Restored signed, in-flight, and confirmed transactions display the confirmation step. */
+  const showingConfirmation = isActionPending(status) || status === 'confirmed';
+  const activeStep = showingConfirmation ? 'confirmStep' : reviewedQuote ? 'reviewStep' : 'amountStep';
+  /** 步骤切换后将焦点送到对应标题或数量字段，以便键盘用户继续操作。 Move focus to the heading or amount field after a step change. */
+  const previousStep = useRef(activeStep);
+  const stepHeading = useRef<HTMLHeadingElement>(null);
+  const amountField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (previousStep.current === activeStep) return;
+    previousStep.current = activeStep;
+    if (activeStep === 'amountStep') amountField.current?.focus();
+    else stepHeading.current?.focus();
+  }, [activeStep]);
   /** 已知签名在等待、失败和成功时都可在区块浏览器检查。 Known signatures can be checked in the explorer during confirmation, after failure, and on success. */
   const receipt = attempt && 'receipt' in attempt ? attempt.receipt : undefined;
   /** 展示简称取自已匹配的金库元数据。输入与到账代币取决于操作方向。 Validated vault metadata supplies symbols; the action determines the input and output tokens. */
@@ -287,7 +320,7 @@ export function VaultTransactionSection({
   const estimatedMessage = redeem ? 'estimatedAssets' : 'estimatedShares';
   const minimumMessage = redeem ? 'minAssets' : 'minShares';
   /** 输入错误与交易结果分开显示，避免把未知余额当作零。 Separate input errors from transaction results and do not treat an unread balance as zero. */
-  const quoteError = preview && 'error' in preview ? preview.error : null;
+  const quoteError = quote && 'error' in quote ? quote.error : null;
 
   /** 写入当前点击所属的钱包和金库状态，切换后也不会混用。 Write progress to the exact vault and wallet of this attempt even after switching. */
   function setAttempt(next: VaultAttempt) {
@@ -295,8 +328,11 @@ export function VaultTransactionSection({
   }
 
   /**
-   * 按签名查看 Devnet 确认结果，成功后只刷新该笔交易对应的链上读数。
-   * Check the Devnet transaction by signature and refresh the matching chain reads after confirmation.
+   * 按签名查看 Devnet 确认结果，成功后记录待同步活动并刷新链上余额。
+   * Check the Devnet transaction by signature, mark its activity for indexing and refresh chain balances.
+   *
+   * @param knownReceipt 可供按签名重查的公开交易回执。 Public transaction receipt used for signature checks.
+   * @param storageKey 发起交易的钱包及金库保存确认状态的会话键。 Session key for the originating wallet's and vault's confirmation.
    */
   async function confirmTransaction(knownReceipt: VaultReceipt, storageKey: string) {
     setAttempt({ status: 'confirming', receipt: knownReceipt });
@@ -321,7 +357,18 @@ export function VaultTransactionSection({
     }
 
     savePendingReceipt(storageKey, null);
-    if (mounted.current) setAmount('');
+    // 后端索引可能晚于链上确认，列表同步不影响用户的成功回执和余额刷新。
+    // Backend indexing may lag confirmation. List synchronization does not affect success or the balance refresh.
+    if (vaultAddress && walletAddress) {
+      recordVaultActivityConfirmation(queryClient, ['devnet', vaultAddress, walletAddress], {
+        signature: knownReceipt.signature,
+        slot: confirmedSlot,
+      });
+    }
+    if (mounted.current) {
+      setAmount('');
+      setReviewed(null);
+    }
     setAttempt({ status: 'refreshing', receipt: knownReceipt });
     try {
       await refreshAfterTransaction(confirmedSlot);
@@ -334,18 +381,54 @@ export function VaultTransactionSection({
   }
 
   /**
-   * 锁定本次预览并准备交易。只有链上模拟通过后才向 Phantom 请求签名。
-   * Freeze this quote and prepare the transaction. Request a Phantom signature only after chain simulation passes.
+   * 根据当前有效报价打开复核，只更新页面状态。
+   * Opens review for the current valid quote by updating page state.
+   *
+   * @param event 填写步骤提交事件。 Amount-entry form submission.
+   */
+  function startReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (showingConfirmation || editingLocked || !walletAddress || !vaultAddress || !quote || 'error' in quote) return;
+
+    setReviewed({ action, vaultAddress, walletAddress, quote });
+    setAttempt({ status: 'idle' });
+  }
+
+  /**
+   * 放弃本次复核，保留输入数量以便修改。
+   * Discards this review and retains the input amount for editing.
+   */
+  function editAmount() {
+    setReviewed(null);
+    setAttempt({ status: 'idle' });
+  }
+
+  /**
+   * 复核后的明确提交才准备交易，成功模拟后再请求 Phantom 签名。
+   * Prepares the transaction after explicit review submission and requests Phantom approval after successful simulation.
+   *
+   * @param event 复核步骤提交事件。 Review form submission.
    */
   async function submitTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!walletAddress || !receiptKey || !state?.wallet || !quote || 'error' in quote) return;
+    if (!walletAddress || !receiptKey || !reviewedQuote) return;
 
     // 在网络请求之前同步检查并更新缓存，拦截同一钱包的连点或返回页面后再次点击。
     // Check and update the cache synchronously before any network request to block rapid clicks and remounts.
+    /** 当前钱包和金库的存入及赎回进度。 Deposit and redemption attempts for the active wallet and vault. */
     const current = queryClient.getQueryData<VaultAttempts>(attemptKey);
     if (isActionPending(current?.deposit?.status) || isActionPending(current?.redeem?.status)) return;
-    setSigningQuote(quote);
+
+    // 自动读链可能在复核期间更新报价，任何复核金额变化都应让用户重新核对。
+    // Automatic reads may change the quote during review. Require another review if any reviewed amount changes.
+    if (!state?.wallet || !quote || 'error' in quote
+      || reviewedQuote.inputRaw !== quote.inputRaw || reviewedQuote.estimatedRaw !== quote.estimatedRaw
+      || reviewedQuote.minimumRaw !== quote.minimumRaw) {
+      setReviewed(null);
+      setAttempt({ status: 'quoteChanged' });
+      return;
+    }
+
     setAttempt({ status: 'preparing' });
 
     /** 包含本次金额、最低到账及 blockhash 有效期的待签名交易。 Unsigned transaction containing amounts and its blockhash validity window. */
@@ -354,19 +437,22 @@ export function VaultTransactionSection({
       prepared = redeem
         ? await prepareVaultRedeem({
           walletAddress,
-          sharesRaw: quote.inputRaw,
-          minAssetsRaw: quote.minimumRaw,
+          sharesRaw: reviewedQuote.inputRaw,
+          minAssetsRaw: reviewedQuote.minimumRaw,
           minContextSlot: state.slot,
           shareAccounts: state.wallet.shareAccounts,
         })
         : await prepareVaultDeposit({
           walletAddress,
-          assetsRaw: quote.inputRaw,
-          minSharesRaw: quote.minimumRaw,
+          assetsRaw: reviewedQuote.inputRaw,
+          minSharesRaw: reviewedQuote.minimumRaw,
           minContextSlot: state.slot,
         });
     } catch (error) {
-      setAttempt({ status: preparationStatus(error) });
+      /** 模拟发现最新账户状态下金额已变化时，需要返回填写步骤重新核对。 A simulated quote change also requires a fresh review from amount entry. */
+      const failedStatus = preparationStatus(error);
+      if (failedStatus === 'quoteChanged') setReviewed(null);
+      setAttempt({ status: failedStatus });
       return;
     }
 
@@ -408,104 +494,144 @@ export function VaultTransactionSection({
   }
 
   return (
-    <section className="vault-transaction" aria-labelledby={formId + '-title'}>
-      <h2 id={formId + '-title'}>{t(message + 'title')}</h2>
+    <section className="vault-transaction" aria-label={t(message + 'title')}>
       {walletAddress === null ? (
         <p className="vault-transaction__notice">{t(message + 'connectPrompt')}</p>
       ) : (
-        <form className="vault-transaction__form" onSubmit={submitTransaction}>
-          <div className="vault-transaction__field">
-            <label htmlFor={formId + '-amount'}>{t(message + 'amount')} ({inputSymbol})</label>
-            <div className="vault-transaction__input-row">
-              <input
-                id={formId + '-amount'}
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                maxLength={27}
-                placeholder="0.00"
-                value={amount}
-                disabled={editingLocked || balanceRaw === undefined || receivingFrozen}
-                aria-invalid={quoteError !== null}
-                aria-describedby={quoteError ? formId + '-balance ' + formId + '-quote-error' : formId + '-balance'}
-                onChange={(event) => setAmount(event.currentTarget.value)}
-              />
+        <>
+          <ol className="vault-transaction__steps" aria-label={t('vaultFlow.steps')}>
+            {vaultFlowSteps.map((step) => (
+              <li key={step} aria-current={step === activeStep ? 'step' : undefined}>
+                {t('vaultFlow.' + step)}
+              </li>
+            ))}
+          </ol>
+          <form
+            key={activeStep}
+            className="vault-transaction__form"
+            onSubmit={activeStep === 'reviewStep' ? submitTransaction : startReview}
+          >
+            {activeStep === 'amountStep' ? (
+              <>
+                <div className="vault-transaction__field">
+                  <label htmlFor={formId + '-amount'}>{t(message + 'amount')} ({inputSymbol})</label>
+                  <div className="vault-transaction__input-row">
+                    <input
+                      ref={amountField}
+                      id={formId + '-amount'}
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      maxLength={27}
+                      placeholder="0.00"
+                      value={amount}
+                      disabled={editingLocked || balanceRaw === undefined || receivingFrozen}
+                      aria-invalid={quoteError !== null}
+                      aria-describedby={quoteError ? formId + '-balance ' + formId + '-quote-error' : formId + '-balance'}
+                      onChange={(event) => setAmount(event.currentTarget.value)}
+                    />
+                    <button
+                      type="button"
+                      className="vault-transaction__max"
+                      disabled={editingLocked || balanceRaw === undefined || balanceRaw === 0n || receivingFrozen}
+                      onClick={() => balanceRaw !== undefined && setAmount(formatDepositInput(balanceRaw))}
+                    >
+                      {t(message + 'useMax')}
+                    </button>
+                  </div>
+                  <p id={formId + '-balance'} className="vault-transaction__hint">
+                    {balanceRaw === undefined
+                      ? t(message + (isReadPending && !isReadError ? 'readPending' : 'balanceUnavailable'))
+                      : <>{t(message + 'availableBalance')} {formatVaultAmount(balanceRaw, depositDecimals, locale)} {inputSymbol}</>}
+                  </p>
+                  {receivingFrozen && (
+                    <p className="vault-transaction__error" role="alert">{t(message + 'receivingAccountFrozen')}</p>
+                  )}
+                  {quoteError && (
+                    <p id={formId + '-quote-error'} className="vault-transaction__error" role="alert">{t(message + quoteError)}</p>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  className="vault-transaction__submit"
+                  disabled={editingLocked || !quote || 'error' in quote}
+                >
+                  {t('vaultFlow.reviewAction')}
+                </button>
+              </>
+            ) : activeStep === 'reviewStep' && reviewedQuote ? (
+              <>
+                <h2 ref={stepHeading} tabIndex={-1}>{t('vaultFlow.reviewHeading')}</h2>
+                <div className="vault-transaction__quote">
+                  <dl>
+                    <div>
+                      <dt>{t(message + 'amount')}</dt>
+                      <dd>{formatVaultAmount(reviewedQuote.inputRaw, depositDecimals, locale)} {inputSymbol}</dd>
+                    </div>
+                    <div>
+                      <dt>{t(message + estimatedMessage)}</dt>
+                      <dd>{formatVaultAmount(reviewedQuote.estimatedRaw, depositDecimals, locale)} {outputSymbol}</dd>
+                    </div>
+                    <div>
+                      <dt>{t(message + minimumMessage)}</dt>
+                      <dd>{formatVaultAmount(reviewedQuote.minimumRaw, depositDecimals, locale)} {outputSymbol}</dd>
+                    </div>
+                  </dl>
+                  <p className="vault-transaction__hint">{t(message + 'toleranceHint')}</p>
+                </div>
+                <div className="vault-transaction__actions">
+                  <button type="button" className="vault-transaction__max" onClick={editAmount}>
+                    {t('vaultFlow.editAction')}
+                  </button>
+                  <button type="submit" className="vault-transaction__submit" disabled={editingLocked}>
+                    {t(message + 'submit')}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <h2 ref={stepHeading} tabIndex={-1}>{t('vaultFlow.confirmStep')}</h2>
+            )}
+            {otherPending && (
+              <p className="vault-transaction__hint" role="status">{t(message + 'otherActionPending')}</p>
+            )}
+            {status !== 'idle' && (
+              <div className="vault-transaction__feedback" role="status">
+                <p>{t(message + status)}</p>
+                {attempt && 'readRefreshFailed' in attempt && attempt.readRefreshFailed && (
+                  <p>{t(message + 'readRefreshFailed')}</p>
+                )}
+                {receipt && (
+                  <a
+                    href={'https://explorer.solana.com/tx/' + encodeURIComponent(receipt.signature) + '?cluster=devnet'}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t(message + 'explorerLink')}
+                  </a>
+                )}
+                {status === 'confirmationUnknown' && (
+                  <button
+                    type="button"
+                    className="vault-transaction__max"
+                    disabled={otherPending && otherStatus !== 'confirmationUnknown'}
+                    onClick={recheckTransaction}
+                  >
+                    {t(message + 'recheck')}
+                  </button>
+                )}
+              </div>
+            )}
+            {status === 'confirmed' && (
               <button
                 type="button"
-                className="vault-transaction__max"
-                disabled={editingLocked || balanceRaw === undefined || balanceRaw === 0n || receivingFrozen}
-                onClick={() => balanceRaw !== undefined && setAmount(formatDepositInput(balanceRaw))}
+                className="vault-transaction__max vault-transaction__new"
+                onClick={editAmount}
               >
-                {t(message + 'useMax')}
+                {t('vaultFlow.newAction')}
               </button>
-            </div>
-            <p id={formId + '-balance'} className="vault-transaction__hint">
-              {balanceRaw === undefined
-                ? t(message + (isReadPending && !isReadError ? 'readPending' : 'balanceUnavailable'))
-                : <>{t(message + 'availableBalance')} {formatVaultAmount(balanceRaw, depositDecimals, locale)} {inputSymbol}</>}
-            </p>
-            {receivingFrozen && (
-              <p className="vault-transaction__error" role="alert">{t(message + 'receivingAccountFrozen')}</p>
             )}
-            {quoteError && (
-              <p id={formId + '-quote-error'} className="vault-transaction__error" role="alert">{t(message + quoteError)}</p>
-            )}
-          </div>
-
-          {preview && 'estimatedRaw' in preview && (
-            <div className="vault-transaction__quote">
-              <dl>
-                <div>
-                  <dt>{t(message + estimatedMessage)}</dt>
-                  <dd>{formatVaultAmount(preview.estimatedRaw, depositDecimals, locale)} {outputSymbol}</dd>
-                </div>
-                <div>
-                  <dt>{t(message + minimumMessage)}</dt>
-                  <dd>{formatVaultAmount(preview.minimumRaw, depositDecimals, locale)} {outputSymbol}</dd>
-                </div>
-              </dl>
-              <p className="vault-transaction__hint">{t(message + 'toleranceHint')}</p>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="vault-transaction__submit"
-            disabled={editingLocked || quote === null || 'error' in quote}
-          >
-            {t(message + 'submit')}
-          </button>
-          {otherPending && (
-            <p className="vault-transaction__hint" role="status">{t(message + 'otherActionPending')}</p>
-          )}
-          {status !== 'idle' && (
-            <div className="vault-transaction__feedback" role="status">
-              <p>{t(message + status)}</p>
-              {attempt && 'readRefreshFailed' in attempt && attempt.readRefreshFailed && (
-                <p>{t(message + 'readRefreshFailed')}</p>
-              )}
-              {receipt && (
-                <a
-                  href={'https://explorer.solana.com/tx/' + encodeURIComponent(receipt.signature) + '?cluster=devnet'}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t(message + 'explorerLink')}
-                </a>
-              )}
-              {status === 'confirmationUnknown' && (
-                <button
-                  type="button"
-                  className="vault-transaction__max"
-                  disabled={otherPending && otherStatus !== 'confirmationUnknown'}
-                  onClick={recheckTransaction}
-                >
-                  {t(message + 'recheck')}
-                </button>
-              )}
-            </div>
-          )}
-        </form>
+          </form>
+        </>
       )}
     </section>
   );

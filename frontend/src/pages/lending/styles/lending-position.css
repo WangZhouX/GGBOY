@@ -1,0 +1,159 @@
+/* 仓位区与清算条件分列，窄屏按阅读顺序纵向排列。 */
+/* Place position and liquidation rules side by side, stacking in reading order on narrow screens. */
+.lending-position {
+  display: grid;
+  align-items: start;
+  gap: clamp(1rem, 3vw, 2.6rem);
+  min-width: 0;
+}
+
+.lending-position--split {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+}
+
+.lending-position__section {
+  display: grid;
+  min-width: 0;
+  gap: 0.8rem;
+  padding: 1rem 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.lending-position__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.lending-position__section h2 {
+  margin: 0;
+  font-size: 1.22rem;
+  font-weight: 690;
+}
+
+.lending-position__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.lending-position__note--error {
+  color: #ffb7b7;
+}
+
+/* 链接入口和原有按钮共用对齐及触控尺寸。 */
+/* Align the action link and existing buttons with the same touch target size. */
+.lending-position__button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  justify-self: start;
+  min-height: 2.6rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.lending-position__button--connect {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #0c2118;
+}
+
+.lending-position__button:hover:not(:disabled) {
+  border-color: var(--accent);
+  text-decoration: underline;
+}
+
+.lending-position__button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+/* 金额保持精度，长数字和资产简称可在窄列内换行。 */
+/* Preserve exact amounts while letting long numbers and tickers wrap in narrow columns. */
+.lending-position__metrics {
+  margin: 0;
+}
+
+.lending-position__metrics > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.lending-position__metrics dt {
+  color: var(--muted);
+}
+
+.lending-position__metrics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 850px) {
+  .lending-position--split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 借款流程入口成组展示，窄屏按仓位生命周期逐个排列。 */
+/* Group the borrowing actions and stack them in lifecycle order on narrow screens. */
+.lending-position__operations {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.45rem;
+}
+
+.lending-position__operations h3,
+.lending-position__operations h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.lending-position__operation-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lending-position__operation-list > li {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+}
+
+@media (max-width: 520px) {
+  .lending-position__operation-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 出借和提取为独立入口，窄屏按操作顺序换行。 */
+/* Keep supply and withdrawal as separate entries and wrap them in action order on narrow screens. */
+.lending-position__supply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}

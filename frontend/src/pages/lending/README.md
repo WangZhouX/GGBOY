@@ -1,3 +1,62 @@
 # 借贷市场
 
-[市场概况](LendingMarketPage.tsx)、[我的借款](BorrowPage.tsx)、[我的出借](SupplyPage.tsx) 和 [清算市场](LiquidationsPage.tsx) 各有独立页面入口。各页共用 [LendingNavigation](../../features/lending/README.md)，便于保留同一网络和统一的选中状态。
+[LendingMarketPage.tsx](LendingMarketPage.tsx) 对应 /lend。首页按原型先展示「我要借款」和「我要出借」两个独立入口，下方左侧展示资金池现况，右侧提供第三方清算与清算市场入口。窄屏按原阅读顺序叠放。
+
+进入首页、切换网络或点击「刷新资金池」时，通过 [listLendingMarkets.ts](../../features/lending/api/listLendingMarkets.ts) 查询市场目录和最新观测，查询不需要连接钱包。多市场时选择器将公钥保存在 market 参数，子导航和操作入口同时保留当前网络与市场。URL 中的市场在当前网络无匹配时，首页回退至该网络的首个登记市场。
+
+[LendingPoolMetrics.tsx](LendingPoolMetrics.tsx) 按借款 Mint 的精度展示池内现金、可借总额和未偿债务，把基点格式化为百分比，并展示 UTC 观测时间。未登记市场、已登记但暂无观测、真实零值与请求失败分别展示。较旧的观测标注为「上次观测」。
+
+已登记的 GGBOY Devnet 市场通过 [Devnet 借贷客户端](../../solana/lending/README.md) 读取池内现金。当链上观测达到索引快照的 slot，或市场尚无快照时，显示已核验的链上现金与最终确认 slot。读取无需钱包，页面在前台每 30 秒刷新，也可手动刷新。利率与可借额度使用索引观测。
+
+[我的借款](BorrowPage.tsx) 对应 `/lend/borrow`，展示链上抵押、未偿本金、可操作额度、健康度和最近操作。[我的出借](SupplyPage.tsx) 对应 `/lend/supply`，展示份额和出借估值。已登记的 GGBOY Devnet 市场直接读取最终确认的借款与出借仓位。其他已登记市场通过 [getLendingPosition.ts](../../features/lending/api/getLendingPosition.ts) 查看索引数据。Devnet 出借展示关联代币账户可用余额、钱包持有的份额、仓位估值以及当前可提取的金额与份额。估值按「钱包份额 × 池记账资产 ÷ 池总份额」向下取整，按借款 Mint 的精度显示。页面确认当前网络的登记市场和连接钱包后查询仓位。选中的市场无匹配时使用该网络第一个登记市场，网络、市场或钱包发生变化时按新的组合查询。
+
+金额按抵押 Mint 或借款 Mint 的精度从最小单位换算。链上出借份额以六位小数格式化，索引仓位仍显示原始份额单位。尚未同步的仓位、暂不可估算的字段和已确认的零值分别展示。仓位时间供用户了解最近一次观测，过期观测保留历史含义。「观测时清算状态」反映仓位采集时的判定。
+
+[LendingPositionView.tsx](LendingPositionView.tsx) 统一处理两个页面的查询状态和仓位布局。[positionValues.ts](positionValues.ts) 将金额、份额、风险比率和价格转换为页面文本。
+
+[清算市场](LiquidationsPage.tsx) 使用独立路由。页面 CSS 位于 [styles](styles/README.md)。
+
+## Devnet 借贷演示顺序
+
+同一个测试钱包可同时有出借和借款仓位。以下示例使用钱包中已有的 100 mockUSDC 和 1 tSOL，测试价格为 100 mockUSDC/tSOL。其他钱包也可以负责出借。
+
+1. 「我的出借」出借 100 mockUSDC。资金池增加 100 mockUSDC 现金，钱包取得 100 份。
+2. 「我的借款」追加 1 tSOL 抵押。钱包可用 tSOL 降到零，已锁定抵押品显示 1 tSOL。若仓位已经锁定 1 tSOL，可直接继续。
+3. 点击「借入 mockUSDC」。价格有效、未偿本金为零时，1 tSOL 的 70% 抵押额度为 70 mockUSDC。实际额度同时受池内现金限制，可以先借 25 mockUSDC。
+4. 用收到的 25 mockUSDC 还款，再取回 1 tSOL。取回后钱包可以用同一枚 tSOL 再次抵押。
+5. 保留出借份额，能继续用同一池资金演示下一轮借款。若提取了全部出借资金且没有其他出借人，池内现金便会归零。
+
+「我的借款」和借款表单在额度为零时分别说明缺少锁定抵押、资金池没有可借现金，或抵押额度已被现有借款占用，并提供对应入口。追加抵押页的钱包余额只显示未锁定的 tSOL。普通 Devnet SOL 用于支付手续费和账户创建成本。
+
+## Devnet 出借
+
+[LendingSupplyOperationPage.tsx](LendingSupplyOperationPage.tsx) 对应 `/lend/supply/deposit`。可从市场首页「我要出借」和「我的出借」进入，跳转保留当前 Devnet 市场。用户用已连接的 Phantom 账户持有测试 `mockUSDC`，并准备少量 Devnet SOL 支付交易费和首次创建仓位所需的租金储备。若本次同时创建池账本，签名钱包也支付该账户的租金储备。
+
+1. 页面读取该钱包关联代币账户的 `mockUSDC` 和出借池账本。输入金额后，预览按六位小数展示预计份额，向下取整后的报价同时作为链上最低到账份额。
+2. 用户确认后，前端模拟交易，Phantom 弹出签名请求并广播。交易最终确认后，页面核验回执中的 `LendingSupply` 事件，再展示本次实际获得的 `shares_out` 和签名。
+3. 前端从交易 slot 或更新位置读取最终确认的池现金、个人出借仓位和钱包余额，刷新资金池和「我的出借」。仓位显示的是账户中的累计份额。若确认或刷新需要重试，可继续核对同一笔签名。浏览器允许会话存储时，刷新当前标签页后仍可重查待处理的原签名。
+
+交易和链上读取的职责见 [Solana 借贷客户端](../../solana/lending/README.md)。
+
+## Devnet 提取出借资金
+
+从「我的出借」打开「提取出借资金」进入 `/lend/supply/withdraw`。选择部分份额，或在现金足够时选全部份额。有未偿借款、池现金不足时，页面给出最高可提交的份额和该份额对应的预计到账。已连接的钱包下按所选市场读取同一个最终确认的链上观测。
+
+核对扣除份额、预计到账和最低到账后，页面用最新状态模拟，并由 Phantom 签名。这笔交易可同时为钱包创建缺失的 `mockUSDC` 关联账户，钱包支付交易费及需要的免租金余额。最终确认后展示实际到账和剩余份额，刷新仓位、钱包余额和资金池。全额提取后显示零份额和零额度，交易确认或同步中断可按原签名重查。
+
+## Devnet 借款
+
+离开操作页后返回时，页面保留等待 Phantom 的核对明细。签名窗口没有出现时，可用 Chrome 工具栏打开 Phantom。没有返回签名的请求在 Devnet 确认区块哈希已过期后恢复金额表单，并提示先核对钱包活动。
+
+使用带 Phantom 的浏览器打开借贷市场，选择 Devnet 并进入「我的借款」。页面连接钱包后读取该市场和钱包对应的链上仓位。第一次进入可看到零抵押和零债务。准备 Devnet SOL 支付手续费、首次创建仓位和关联代币账户所需的租金储备。追加抵押还需使用该市场登记的测试 `tSOL`。
+
+[LendingBorrowOperationPage.tsx](LendingBorrowOperationPage.tsx) 承载四条操作路由，保留同一个 Devnet 市场和钱包作用域。
+
+1. `/lend/borrow/collateral`「追加抵押品」。用钱包的 `tSOL` 余额建立或增加抵押仓位。
+2. `/lend/borrow/borrow`「借入 mockUSDC」。可借额由抵押价值、未偿本金和池内已记账的流动性共同决定。请先由出借人通过「我要出借」向池内提供 `mockUSDC`，并由管理员发布当前测试价格。
+3. `/lend/borrow/repay`「偿还借款」。用钱包中的关联账户余额偿还部分或全部本金。价格缺失或过期仍可还款。
+4. `/lend/borrow/withdraw`「取回抵押品」。无债务时可取回全部 `tSOL`。仍有本金时，需要有效价格且操作后 LTV 不超过 70%。
+
+每笔交易先核对金额并模拟，再由 Phantom 签名。链上执行成功并最终确认后，回执显示实际金额和操作后的抵押、债务。页面以交易 slot 为下限刷新仓位和资金池。完成同步后，返回「我的借款」并再次打开同一操作会直接进入金额表单，上一笔回执留在「最近借款交易」。等待签名、确认或同步时重新进入，页面继续显示本次进度。交易确认暂时无法读取时，使用已提交的原签名重查。
+
+[LendingBorrowActivitySection.tsx](LendingBorrowActivitySection.tsx) 从当前钱包规范借款仓位的最新 10 个最终确认交易签名中，展示最多 6 个已核验的最近操作。80% 清算阈值用于健康度与清算参考价提示。当前版本按本金结算。 [链上风险与价格规则](../../../../onchain/programs/ggboy_lending/README.md#抵押与借款)

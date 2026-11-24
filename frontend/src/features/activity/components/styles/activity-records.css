@@ -1,0 +1,75 @@
+/* 窄屏使用可聚焦的水平滚动区域，保留数据列和表头。 */
+/* Keep data columns and their headers in a focusable horizontal scroll region on narrow screens. */
+.activity-records {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+}
+
+.activity-records table {
+  width: 100%;
+  min-width: 43rem;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.activity-records th,
+.activity-records td {
+  padding: 0.85rem 0.9rem;
+  vertical-align: top;
+}
+
+.activity-records thead th {
+  color: var(--muted);
+  font-weight: 540;
+}
+
+.activity-records tbody tr {
+  border-top: 1px solid var(--border);
+}
+
+.activity-records tbody th {
+  font-weight: 640;
+}
+
+.activity-records ul {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-records__operation,
+.activity-records__secondary {
+  display: block;
+}
+
+.activity-records__secondary,
+.activity-records__address {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.activity-records__secondary {
+  margin-top: 0.25rem;
+}
+
+.activity-records__address {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+.activity-records td strong,
+.activity-records td time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 业务页省略参与方后适当缩小表格最低宽度。 */
+/* Use a narrower table floor when an embedded view omits participants. */
+.activity-records--compact table {
+  min-width: 31rem;
+}

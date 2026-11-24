@@ -1,0 +1,127 @@
+/* 金额、签名核对和回执在不同屏宽下保持单列阅读顺序。 */
+/* Keep amount, signing review, and receipt in one reading order across screen sizes. */
+.lending-borrow-operation,
+.lending-borrow-operation__panel {
+  max-width: 42rem;
+  min-width: 0;
+}
+
+.lending-borrow-operation__back {
+  justify-self: start;
+  width: fit-content;
+}
+
+.lending-borrow-operation__panel {
+  display: grid;
+  justify-items: start;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.6rem);
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface);
+}
+
+.lending-borrow-operation__panel :is(h2, p, dl) {
+  margin: 0;
+}
+
+.lending-borrow-operation__panel h2 {
+  font-size: 1.18rem;
+}
+
+.lending-borrow-operation__panel p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+/* 表单与回执允许全精度金额自然折行，避免压缩窄屏内容。 */
+/* Let full-precision form and receipt values wrap without squeezing narrow layouts. */
+.lending-borrow-operation__form,
+.lending-borrow-operation__summary {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 0.7rem;
+}
+
+.lending-borrow-operation__form button[type='submit'] {
+  justify-self: start;
+}
+
+.lending-borrow-operation__summary {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: baseline;
+}
+
+.lending-borrow-operation__summary dt {
+  color: var(--muted);
+}
+
+.lending-borrow-operation__summary dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.lending-borrow-operation__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.lending-borrow-operation__row input {
+  flex: 1 1 10rem;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.6rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.lending-borrow-operation__row input:focus {
+  border-color: var(--accent);
+}
+
+.lending-borrow-operation__button {
+  min-height: 2.6rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.lending-borrow-operation__button--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #0c2118;
+}
+
+.lending-borrow-operation__button:hover:not(:disabled) {
+  border-color: var(--accent);
+  text-decoration: underline;
+}
+
+.lending-borrow-operation__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lending-borrow-operation__panel .lending-borrow-operation__error {
+  color: #ffb7b7;
+}
+
+.lending-borrow-operation__panel .lending-borrow-operation__success {
+  color: var(--accent);
+  font-weight: 700;
+}

@@ -1,0 +1,72 @@
+/* 区块与净值图保持相同阅读节奏，留出表格横向滚动所需的收缩空间。 */
+/* Match the NAV section's spacing and allow the table wrapper to shrink for horizontal scrolling. */
+.vault-recent-activity {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2.15rem;
+  min-width: 0;
+}
+
+.vault-recent-activity__header,
+.vault-recent-activity__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.85rem;
+}
+
+.vault-recent-activity__header {
+  justify-content: space-between;
+}
+
+.vault-recent-activity__header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 690;
+}
+
+/* 窄屏时操作可以换行，且链接和按钮保持相同的最小点击高度。 */
+/* Let controls wrap on narrow screens and give the link and button the same minimum target height. */
+.vault-recent-activity__actions .text-link,
+.vault-recent-activity__refresh {
+  min-height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.vault-recent-activity__refresh {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font-family: inherit;
+}
+
+.vault-recent-activity__refresh:enabled {
+  cursor: pointer;
+}
+
+.vault-recent-activity__refresh:enabled:hover {
+  border-color: var(--accent);
+}
+
+.vault-recent-activity__refresh:disabled {
+  opacity: 0.62;
+}
+
+.vault-recent-activity__status {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.vault-recent-activity__status--error {
+  border-color: #734c4b;
+  color: #ffb7b7;
+}

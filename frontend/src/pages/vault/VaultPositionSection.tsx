@@ -1,4 +1,5 @@
 import { skipToken, useQuery } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getVaultPosition, type VaultPositionSnapshot } from '../../features/vault/api/getVaultPosition';
 import type { VaultAsset, VaultListItem } from '../../features/vault/api/listVaults';
@@ -19,6 +20,8 @@ interface VaultPositionSectionProps {
   isVaultListError: boolean;
   /** 已支持读链的 Devnet 仓位由页面提供；其他金库仍使用后端索引。 The page supplies the supported Devnet position; other vaults use the backend index. */
   livePosition?: LiveVaultPosition;
+  /** 已连接钱包可用的存入和赎回入口，由页面根据金库能力提供。 Deposit and redemption links that the page enables for the selected vault. */
+  actions?: ReactNode;
 }
 
 /** 钱包份额区所用的实时查询结果和刷新操作。 Live position result and refresh control used by the wallet section. */
@@ -111,16 +114,20 @@ function VaultPositionDetails({ snapshot, vault }: VaultPositionDetailsProps) {
 }
 
 /**
- * 为已连接的钱包查询选中金库的份额，并显示仓位或当前查询状态。
- * Query the connected wallet's position in the selected vault and render the position or its query state.
+ * 将钱包仓位、可赎回金额和对应的存赎入口归在一起。
+ * Group the wallet position, redeemable amount, and corresponding deposit and redemption links.
  *
- * @param props 当前网络、选中金库及公开列表请求状态。 Network, selected vault, and public list request status.
+ * @param props 当前网络、金库、目录状态、实时仓位与可用入口。 Network, vault, catalog status, live position, and available action links.
  */
-export function VaultPositionSection({ network, vault, isVaultListPending, isVaultListError, livePosition }: VaultPositionSectionProps) {
+export function VaultPositionSection({
+  network, vault, isVaultListPending, isVaultListError, livePosition, actions,
+}: VaultPositionSectionProps) {
   /** 仓位区使用当前界面的语言。 Use the selected language for position content. */
   const { t } = useTranslation();
-  /** 由全站 Phantom 连接状态提供公钥，断开时为空。 Public key from the shared Phantom connection, or null if disconnected. */
-  const { walletAddress } = usePhantomWallet();
+  /** 全站共用同一个钱包连接，公钥在断开时为空。 Share the app's wallet connection, whose public key is null when disconnected. */
+  const { walletAddress, connect, status: walletStatus } = usePhantomWallet();
+  /** 已有钱包请求时，份额区和顶栏均等待同一次连接操作。 The position section and header wait on the same in-flight wallet request. */
+  const isWalletBusy = walletStatus === 'connecting' || walletStatus === 'disconnecting';
   /** 页面所选金库的状态账户地址，目录尚不可用时为空。 Selected vault's state account address, or null until available. */
   const vaultAddress = vault?.address ?? null;
   /** 只有同时确定钱包与金库时仓位请求才有完整的路径参数。 Position requests have both path parameters only when a wallet and vault are known. */
@@ -152,6 +159,11 @@ export function VaultPositionSection({ network, vault, isVaultListPending, isVau
     else void indexedPosition.refetch();
   }
 
+  /** 由用户在份额区发起现有 Phantom 连接流程。 Start the shared Phantom connection from the position section. */
+  function connectWallet() {
+    void connect();
+  }
+
   return (
     <section className="vault-position" aria-labelledby="vault-position-title">
       <header className="vault-position__header">
@@ -162,7 +174,14 @@ export function VaultPositionSection({ network, vault, isVaultListPending, isVau
           </button>
         )}
       </header>
-      {walletAddress === null && <p className="vault-position__status" role="status">{t('vaultPosition.connectPrompt')}</p>}
+      {walletAddress === null && (
+        <div className="vault-position__wallet-prompt">
+          <p className="vault-position__status">{t('vaultPosition.connectPrompt')}</p>
+          <button type="button" className="vault-position__connect" disabled={isWalletBusy} onClick={connectWallet}>
+            {t(walletStatus === 'connecting' ? 'wallet.connecting' : 'wallet.connect')}
+          </button>
+        </div>
+      )}
       {walletAddress !== null && !vault && (
         <p className="vault-position__status" role="status">
           {t(isVaultListError ? 'vaultPosition.vaultListError' : isVaultListPending ? 'vaultPosition.waitingForVaults' : 'vaultPosition.noVault')}
@@ -180,6 +199,7 @@ export function VaultPositionSection({ network, vault, isVaultListPending, isVau
       {/* 只有查询成功拿到快照时才展示数值。 */}
       {/* Render values only after a query has returned a snapshot. */}
       {canQuery && vault && snapshot && <VaultPositionDetails snapshot={snapshot} vault={vault} />}
+      {canQuery && actions}
     </section>
   );
 }

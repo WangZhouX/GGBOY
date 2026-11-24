@@ -1,5 +1,6 @@
 import type { SendOptions, Transaction } from '@solana/web3.js';
 import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren } from 'react';
+import { devnetRpcUrl } from './getDevnetSolBalance';
 
 /** Phantom 公钥序列化为 Base58 地址。 Phantom public key serializable as a Base58 address. */
 type PhantomPublicKey = { toString(): string };
@@ -12,7 +13,7 @@ type WalletError = 'unavailable' | 'unsupportedOrigin' | 'connectError' | 'rejec
   | 'connectTimeout' | 'connectCancelled' | 'disconnectError';
 
 /** 用户交易失败的本地化提示类型。 Localizable wallet transaction failure types. */
-type WalletTransactionErrorCode = 'rejected' | 'walletChanged' | 'approvalPending' | 'submissionFailed';
+type WalletTransactionErrorCode = 'rejected' | 'walletChanged' | 'approvalPending' | 'approvalExpired' | 'submissionFailed';
 
 /** 交易调用暴露的可识别错误，保留原因供本地诊断。 Recognizable failure from a transaction call, retaining its cause for local diagnostics. */
 export class WalletTransactionError extends Error {
@@ -20,7 +21,7 @@ export class WalletTransactionError extends Error {
    * 用稳定的错误码让页面选择提示。
    * Allow the page to select a message using a stable error code.
    *
-   * @param code 钱包拒绝、账户变化、等待审批或提交异常。 Wallet rejection, account change, pending approval, or a submission error.
+   * @param code 钱包拒绝、账户变化、等待审批、审批过期或提交异常。 Wallet rejection, account change, pending or expired approval, or submission failure.
    * @param cause Phantom 的原始错误（如有）。 Original Phantom error, if present.
    */
   constructor(readonly code: WalletTransactionErrorCode, cause?: unknown) {
@@ -80,6 +81,80 @@ const PhantomWalletContext = createContext<PhantomWallet | null>(null);
 
 /** 页面等待 Phantom 授权的最长时间，以毫秒计。 Maximum time the page waits for Phantom approval, in milliseconds. */
 const connectionTimeoutMs = 60_000;
+
+/** 只在签名等待一段时间后查询过期，避免每一次正常签名增加 RPC 调用。 Start expiry checks after a grace period to avoid an extra RPC call during routine approvals. */
+const firstApprovalCheckMs = 30_000;
+/** Devnet 最终确认区块高度的轮询间隔和请求超时，以毫秒计。 Interval and per-request timeout for finalized Devnet block height, in milliseconds. */
+const approvalCheckIntervalMs = 5_000;
+const approvalCheckTimeoutMs = 8_000;
+
+/**
+ * 等待下一次区块高度查询，收到钱包结果时立即清理计时器。
+ * Wait until the next block-height read, clearing the timer immediately when the wallet responds.
+ *
+ * @param intervalMs 等待时长，单位是毫秒。 Delay in milliseconds.
+ * @param signal 钱包返回结果后触发的取消信号。 Signal aborted when the wallet returns.
+ */
+function waitForApprovalCheck(intervalMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    /** 清理计时与监听器，确保流程完成后不遗留轮询。 Clear the timer and listener so polling does not outlive the request. */
+    function finish(): void {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', finish);
+      resolve();
+    }
+
+    /** 本轮等待标识。 Timer for the current wait. */
+    const timer = setTimeout(finish, intervalMs);
+    if (signal.aborted) finish();
+    else signal.addEventListener('abort', finish, { once: true });
+  });
+}
+
+/**
+ * 只有 Devnet 已最终确认的区块高度超过本交易的有效期，才结束未响应的审批等待。
+ * Stop an unresponsive approval only once finalized Devnet block height exceeds this transaction's lifetime.
+ *
+ * @param lastValidBlockHeight 本交易 blockhash 允许被执行的最后区块高度。 Last block height at which the transaction blockhash can be processed.
+ * @param minContextSlot 签名前模拟所用的最低观测位置。 Minimum context slot of the pre-sign simulation.
+ * @param signal 交易返回结果后取消剩余查询。 Cancels remaining checks once the transaction returns.
+ */
+async function waitForApprovalExpiry(
+  lastValidBlockHeight: number, minContextSlot: number, signal: AbortSignal,
+): Promise<never> {
+  await waitForApprovalCheck(firstApprovalCheckMs, signal);
+
+  while (!signal.aborted) {
+    /** 缺少有效 RPC 响应时继续等待，避免误判为过期并允许重复签名。 Keep waiting when a valid RPC response is unavailable so a retry cannot be enabled prematurely. */
+    let blockHeight: unknown;
+    try {
+      const response = await fetch(devnetRpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'getBlockHeight', params: [{ commitment: 'finalized', minContextSlot }],
+        }),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(approvalCheckTimeoutMs)]),
+      });
+      if (response.ok) {
+        /** 仅识别本次 RPC 请求返回的有效整数高度。 Accept only a valid integer height from this RPC response. */
+        const payload: unknown = await response.json();
+        if (typeof payload === 'object' && payload !== null && 'jsonrpc' in payload && payload.jsonrpc === '2.0'
+          && 'id' in payload && payload.id === 1 && 'result' in payload && !('error' in payload)) {
+          blockHeight = payload.result;
+        }
+      }
+    } catch {
+      // 网络超时、限流或临时故障都不能证明 blockhash 已过期。
+      // A timeout, rate limit, or transient error cannot prove the blockhash has expired.
+    }
+    if (!signal.aborted && typeof blockHeight === 'number' && Number.isSafeInteger(blockHeight) && blockHeight > lastValidBlockHeight) {
+      throw new WalletTransactionError('approvalExpired');
+    }
+    await waitForApprovalCheck(approvalCheckIntervalMs, signal);
+  }
+  throw signal.reason;
+}
 
 /**
  * 从页面取得 Phantom 官方注入的 Solana 接口，没有时返回空。
@@ -261,12 +336,18 @@ export function PhantomWalletProvider({ children }: PropsWithChildren) {
     if (!activeProvider.signAndSendTransaction) throw new WalletTransactionError('submissionFailed');
 
     transactionApproval.current = true;
+    /** 钱包返回签名或拒绝后停止检查区块高度。 Stop checking block height after Phantom responds or rejects. */
+    const expiryCheck = new AbortController();
     try {
-      /** 签名仅标识提交，是否成功执行由 Devnet RPC 检查。 The signature identifies submission; Devnet RPC verifies execution. */
-      const { signature } = await activeProvider.signAndSendTransaction(transaction, {
+      /** 钱包签名请求始终只打开一次。全局锁保留至有结果或已证实原 blockhash 过期。 Open only one Phantom request and hold the lock until it returns or the original blockhash definitively expires. */
+      const approval = activeProvider.signAndSendTransaction(transaction, {
         preflightCommitment: 'confirmed',
         minContextSlot,
       });
+      const lastValidBlockHeight = transaction.lastValidBlockHeight;
+      const { signature } = lastValidBlockHeight !== undefined
+        ? await Promise.race([approval, waitForApprovalExpiry(lastValidBlockHeight, minContextSlot, expiryCheck.signal)])
+        : await approval;
       if (!/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) {
         throw new WalletTransactionError('submissionFailed');
       }
@@ -280,6 +361,7 @@ export function PhantomWalletProvider({ children }: PropsWithChildren) {
       if (code === 4100) throw new WalletTransactionError('walletChanged', error);
       throw new WalletTransactionError('submissionFailed', error);
     } finally {
+      expiryCheck.abort();
       transactionApproval.current = false;
     }
   }

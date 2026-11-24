@@ -1,83 +1,48 @@
-/* 金库概况中的名称、完整地址与更新时间可在窄屏换行。 */
-/* Let the vault overview's name, full address, and update time wrap on narrow screens. */
-.vault-overview-entry {
-  padding-top: 1.4rem;
-  border-top: 1px solid var(--border);
-}
-
-.vault-overview-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.vault-overview-identity {
-  min-width: 0;
-}
-
-.vault-overview-header h3 {
-  margin: 0;
-  font-size: 1.4rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.vault-overview-address,
-.vault-overview-observation,
-.vault-overview-awaiting {
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-
-.vault-overview-address {
-  margin: 0.3rem 0 0;
-  font-family: "SFMono-Regular", Consolas, monospace;
-  overflow-wrap: anywhere;
-}
-
-.vault-overview-awaiting {
-  margin: 0;
-}
-
-/* 两张指标卡保持语义分组，空间不足时自动排成一列。 */
-/* Keep two metric groups and stack them automatically when space is limited. */
-.vault-overview-grid {
+/* 在右栏依次排列资产估值和资金来源，两组数据各以分隔线开头。 */
+/* Stack valuation and funding in the right column, using a separator for each metric group. */
+.vault-overview-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
-  align-items: start;
-  gap: 0.9rem;
+  min-width: 0;
+  gap: 1.45rem;
 }
 
 .vault-overview-panel {
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 0.7rem;
-  background: var(--surface);
-  padding: 1rem 1.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
 }
 
-.vault-overview-panel h4 {
-  margin: 0 0 0.6rem;
-  font-size: 1rem;
-  font-weight: 680;
+.vault-overview-panel h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.2rem;
+  font-weight: 690;
+}
+
+.vault-overview-observation,
+.vault-overview-awaiting {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.835rem;
+}
+
+.vault-overview-observation {
+  margin-bottom: 0.4rem;
 }
 
 .vault-overview-panel dl {
   margin: 0;
 }
 
-/* 定义列表的值可换行，长金额与资产简称不会撑开卡片。 */
-/* Let definition-list values wrap so long amounts and tickers stay within a card. */
+/* 将金额按右沿对齐，超长数字可在窄屏继续换行。 */
+/* Right-align amounts and allow longer values to wrap on narrow screens. */
 .vault-overview-metric {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   align-items: baseline;
-  gap: 0.7rem;
+  gap: 0.65rem;
   padding: 0.55rem 0;
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   font-size: 0.875rem;
 }
 
@@ -96,4 +61,13 @@
 .vault-overview-panel--funding .vault-overview-metric:last-child dd {
   color: var(--accent);
   font-weight: 700;
+}
+
+/* 在资金来源标题下说明当前可使用的账户。 */
+/* Explain which accounts can fund a redemption under the funding heading. */
+.vault-overview-funding-note {
+  margin: 0 0 0.55rem;
+  color: var(--muted);
+  font-size: 0.835rem;
+  line-height: 1.5;
 }

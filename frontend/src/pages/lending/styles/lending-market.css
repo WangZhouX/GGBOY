@@ -1,0 +1,134 @@
+/* 首屏突出借款与出借入口，资金池和清算信息在下方分列。 */
+/* Lead with borrowing and supplying, with pool details and liquidation below. */
+.lending-market {
+  display: grid;
+  gap: clamp(1.55rem, 4vw, 2.7rem);
+  min-width: 0;
+}
+
+.lending-market__actions,
+.lending-market__details {
+  display: grid;
+  gap: clamp(1.15rem, 3.8vw, 2.6rem);
+  min-width: 0;
+}
+
+.lending-market__actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lending-market__details {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.lending-market__entry {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  justify-items: start;
+  min-width: 0;
+  gap: 0.75rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface);
+}
+
+.lending-market h2 {
+  margin: 0;
+  font-size: 1.22rem;
+  font-weight: 690;
+  letter-spacing: -0.01em;
+}
+
+.lending-market__entry p,
+.lending-market__liquidation p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.lending-market__button,
+.lending-market__selector select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.6rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.lending-market__button {
+  text-decoration: none;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.lending-market__button--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #0c2118;
+}
+
+.lending-market__button:hover:not(:disabled) {
+  border-color: var(--accent);
+  text-decoration: underline;
+}
+
+.lending-market__button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.lending-market__section {
+  display: grid;
+  min-width: 0;
+  gap: 0.85rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.lending-market__section-header,
+.lending-market__selector {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+}
+
+.lending-market__section-header {
+  justify-content: space-between;
+}
+
+.lending-market__selector,
+.lending-market__pair,
+.lending-market__status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.lending-market__selector select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lending-market__status--error {
+  color: #ffb7b7;
+}
+
+.lending-market__liquidation .text-link {
+  justify-self: start;
+}
+
+@media (max-width: 850px) {
+  .lending-market__actions,
+  .lending-market__details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

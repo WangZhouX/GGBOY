@@ -1,20 +1,19 @@
-/* 策略金库页的份额区域紧随公开概况，标题、选择器和数值分开排列。 */
-/* Place the Vault page position after the overview, with separate heading, selector, and value rows. */
+/* 份额区作为首屏左栏，数据和存赎入口使用一条连续的阅读顺序。 */
+/* Use the first-screen left column for one continuous sequence of wallet balances and actions. */
 .vault-position {
   display: grid;
+  min-width: 0;
   gap: 1rem;
-  margin-top: 2.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
 }
 
 .vault-position__header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem 1rem;
-}
-
-.vault-position__header {
   justify-content: space-between;
+  gap: 0.6rem 1rem;
 }
 
 .vault-position__header h2 {
@@ -25,11 +24,19 @@
 
 .vault-position__observation,
 .vault-position__status {
+  margin: 0;
   color: var(--muted);
   font-size: 0.875rem;
 }
 
-.vault-position__refresh {
+.vault-position__wallet-prompt {
+  display: grid;
+  justify-items: start;
+  gap: 0.85rem;
+}
+
+.vault-position__refresh,
+.vault-position__connect {
   min-height: 2.5rem;
   max-width: 100%;
   padding: 0.4rem 0.8rem;
@@ -39,69 +46,72 @@
   color: var(--accent);
   font: inherit;
   font-size: 0.875rem;
-}
-
-.vault-position__refresh:enabled {
   cursor: pointer;
 }
 
-.vault-position__refresh:enabled:hover {
-  border-color: var(--accent);
+.vault-position__connect {
+  border-color: transparent;
+  background: var(--accent);
+  color: #071811;
+  font-weight: 650;
 }
 
-.vault-position__refresh:disabled {
+.vault-position__refresh:enabled:hover,
+.vault-position__connect:enabled:hover {
+  border-color: var(--accent);
+  filter: brightness(1.08);
+}
+
+.vault-position__refresh:disabled,
+.vault-position__connect:disabled {
   opacity: 0.62;
   cursor: wait;
 }
 
-/* 状态提示和持仓明细共享区域边界。 */
-/* Share the region boundary across feedback and position details. */
-.vault-position__status,
-.vault-position__details {
-  margin: 0;
-  padding: 1rem 1.15rem;
-  border: 1px solid var(--border);
-  border-radius: 0.7rem;
-  background: var(--surface);
-}
-
 .vault-position__status--error {
-  border-color: #734c4b;
   color: #ffb7b7;
 }
 
 .vault-position__observation {
-  margin: 0 0 0.9rem;
+  margin-bottom: 0.7rem;
 }
 
-.vault-position__limit {
-  color: #efbc84;
-}
-
-/* 宽屏并排读三项数值，窄屏换行并保留长金额。 */
-/* Read the three values side by side on wide screens and wrap long amounts on narrow screens. */
+/* 左栏的三项钱包指标按行排列，与右栏资产的阅读方式一致。 */
+/* Arrange the three wallet metrics in rows, matching the right-column valuation. */
 .vault-position__metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  gap: 0.9rem 1.15rem;
   margin: 0;
+}
+
+.vault-position__metrics > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .vault-position__metrics dt {
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: 0.9rem;
 }
 
 .vault-position__metrics dd {
-  margin: 0.2rem 0 0;
-  font-size: 1.15rem;
-  font-weight: 660;
+  margin: 0;
+  text-align: right;
+  font-size: 1rem;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
+.vault-position__metrics > div:last-child dd {
+  color: var(--accent);
+}
+
 .vault-position__limit {
   margin: 0.9rem 0 0;
+  color: #efbc84;
   font-size: 0.875rem;
   overflow-wrap: anywhere;
 }

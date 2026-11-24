@@ -5,8 +5,8 @@
 | 页面目录 | 路径 |
 | --- | --- |
 | [资产总览](overview/README.md) | `/overview` |
-| [策略金库](vault/README.md) | `/vault` |
-| [借贷市场](lending/README.md) | `/lend`、`/lend/borrow`、`/lend/supply`、`/lend/liquidations` |
+| [策略金库](vault/README.md) | `/vault`、`/vault/deposit`、`/vault/redeem` |
+| [借贷市场](lending/README.md) | `/lend`、`/lend/borrow`、`/lend/borrow/{collateral,borrow,repay,withdraw}`、`/lend/supply`、`/lend/supply/deposit`、`/lend/supply/withdraw`、`/lend/liquidations` |
 | [策略管理](strategy/README.md) | `/strategy` |
 | [交易活动与回执](activity/README.md) | `/activity`、`/activity/:signature/events/:eventIndex` |
 | [错误页面](errors/README.md) | 无匹配路由时的 404 页面 |

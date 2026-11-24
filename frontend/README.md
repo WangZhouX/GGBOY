@@ -1,6 +1,6 @@
 # GGBOY 前端
 
-使用 React、TypeScript、Vite、React Router、TanStack Query 和 i18next。当前骨架包含响应式导航、借贷子路由、交易回执路由、中英文切换、网络选择和公共 HTTP 请求层。[策略金库页](src/pages/vault/README.md)已接入公开概况、钱包份额查询、每份净值走势及 Devnet 存赎，页面顶部可通过 [Phantom](src/solana/README.md) 连接钱包。
+使用 React、TypeScript、Vite、React Router、TanStack Query 和 i18next。当前骨架包含响应式导航、借贷子路由、交易回执路由、中英文切换、网络选择和公共 HTTP 请求层。[策略金库页](src/pages/vault/README.md)已接入公开概况、钱包份额查询、每份净值走势及 Devnet 存赎，页面顶部可通过 [Phantom](src/solana/README.md) 连接钱包。[借贷市场](src/pages/lending/README.md)已接入资金池及个人仓位查询。已登记的 GGBOY Devnet 市场通过 Phantom 提供出借、提取出借资金、追加抵押、借款、还款和取回抵押品。最终确认后从链上刷新仓位，借款页也显示最近操作。
 
 ## 本地开发
 

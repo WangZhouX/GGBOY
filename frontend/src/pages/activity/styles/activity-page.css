@@ -1,0 +1,122 @@
+/* 将筛选和结果放在同一块连贯的记录区域。 */
+/* Keep filters and results together in a single activity area. */
+.activity-feed {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.activity-feed__heading,
+.activity-search__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.activity-feed__heading {
+  justify-content: space-between;
+}
+
+.activity-feed__heading h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.activity-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.activity-button,
+.activity-categories button {
+  min-height: 2.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  color: var(--muted);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.activity-button:enabled,
+.activity-categories button {
+  cursor: pointer;
+}
+
+.activity-button:enabled:hover,
+.activity-categories button:hover,
+.activity-categories button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.activity-button--primary {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.activity-button:disabled {
+  opacity: 0.6;
+}
+
+.activity-search {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+}
+
+/* 输入并排呈现，窄屏依次堆叠并保持完整输入宽度。 */
+/* Arrange inputs side by side, stacking them at full width on narrow screens. */
+.activity-search__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.8rem;
+}
+
+.activity-search__field {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.activity-search__field input {
+  min-width: 0;
+  min-height: 2.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.6rem;
+  color: #edf6f1;
+  background: transparent;
+  font: inherit;
+}
+
+.activity-search__field input[aria-invalid="true"] {
+  border-color: #ad6c68;
+}
+
+.activity-feedback {
+  margin: 0;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.activity-feedback--error {
+  border-color: #734c4b;
+  color: #ffb7b7;
+}
+
+.activity-feed__pagination {
+  display: flex;
+  justify-content: center;
+}

@@ -1,0 +1,117 @@
+/* 回执将标识、参与方和实际资产变动分组展示。 */
+/* Group receipt identifiers, participants, and actual asset movements. */
+.receipt-details {
+  display: grid;
+  gap: 1rem;
+}
+
+.receipt-section,
+.receipt-status {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  padding: 1.15rem;
+}
+
+.receipt-section h2 {
+  margin: 0 0 0.85rem;
+  font-size: 1.1rem;
+}
+
+.receipt-section__empty,
+.receipt-status {
+  margin: 0;
+  color: var(--muted);
+}
+
+.receipt-status--error {
+  border-color: #734c4b;
+  color: #ffb7b7;
+}
+
+/* 区块浏览器和返回入口并排放置，窄屏自动换行。 */
+/* Place the Explorer and back links together and allow wrapping on narrow screens. */
+.receipt-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin-top: 1.3rem;
+}
+
+.receipt-status p {
+  margin: 0 0 0.7rem;
+}
+
+.receipt-retry {
+  min-height: 2.5rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.receipt-retry:enabled:hover {
+  background: #15251c;
+}
+
+.receipt-retry:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+/* 长公钥按字换行，避免挤压另一列或撑开正文。 */
+/* Wrap long public keys so the metadata columns fit within the page width. */
+.receipt-identifiers {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
+  gap: 0.45rem 1rem;
+  margin: 0;
+}
+
+.receipt-identifiers dt {
+  color: var(--muted);
+}
+
+.receipt-identifiers dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.receipt-address {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.receipt-entries {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.receipt-entries > li + li {
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+}
+
+.receipt-amount {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 35rem) {
+  .receipt-identifiers {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.3rem;
+  }
+
+  .receipt-identifiers dd + dt {
+    margin-top: 0.4rem;
+  }
+}

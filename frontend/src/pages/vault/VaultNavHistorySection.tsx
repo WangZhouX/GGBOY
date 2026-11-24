@@ -1,10 +1,14 @@
 import { skipToken, useInfiniteQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listVaultSnapshots } from '../../features/vault/api/listVaultSnapshots';
 import type { VaultListItem } from '../../features/vault/api/listVaults';
 import type { Network } from '../../shared/navigation/network';
 import { VaultNavChart } from './VaultNavChart';
 import './styles/vault-nav-history.css';
+
+/** Devnet 首屏查询之间的等待时间，单位为毫秒。 Delay between Devnet first-page requests, in milliseconds. */
+const historyRefreshIntervalMs = 60_000;
 
 /** 页面共享的金库及列表状态，决定走势图是否可以加载。 Page vault selection and list status that determine when history can load. */
 interface VaultNavHistorySectionProps {
@@ -44,13 +48,28 @@ export function VaultNavHistorySection({ network, vault, isVaultListPending, isV
       ? skipToken
       : ({ pageParam, signal }) => listVaultSnapshots({ network, address, cursor: pageParam ?? undefined }, signal),
     getNextPageParam: (lastPage) => lastPage.nextCursor,
+    /**
+     * Devnet 只自动重查正在浏览的首屏，展开历史后由用户控制整段重查。
+     * Automatically refresh only the first Devnet page being viewed. Once expanded, a full reload is user-controlled.
+     *
+     * @param query 当前查询的状态及已加载历史页。 Current query state and loaded history pages.
+     * @returns 前台自动刷新间隔（毫秒），或 false 停止轮询。 Foreground polling interval in milliseconds, or false to pause.
+     */
+    refetchInterval: (query) => network === 'devnet' && address !== undefined &&
+      query.state.fetchStatus === 'idle' && (query.state.data?.pages.length ?? 0) < 2
+      ? historyRefreshIntervalMs
+      : false,
     // 查看钱包扩展等操作离开再回到标签页时，避免重复拉取已经展开的整段历史。
     // Avoid re-fetching all expanded history when the tab regains focus, for example after viewing a wallet extension.
     refetchOnWindowFocus: false,
+    // 重进同一金库或恢复网络时沿用已展开的 Devnet 历史，避免自动重新计算已加载范围。
+    // Reuse the expanded Devnet history on remount or reconnect so the loaded range is not silently regenerated.
+    refetchOnMount: (query) => network !== 'devnet' || (query.state.data?.pages.length ?? 0) < 2,
+    refetchOnReconnect: (query) => network !== 'devnet' || (query.state.data?.pages.length ?? 0) < 2,
   });
 
   /** 合并所有已经加载的页，时间排序和折线缺口由图表组件处理。 Combine loaded pages; the chart orders timestamps and draws gaps. */
-  const snapshots = history.data?.pages.flatMap((page) => page.items) ?? [];
+  const snapshots = useMemo(() => history.data?.pages.flatMap((page) => page.items) ?? [], [history.data]);
 
   /** 从最新一页开始重新查询已加载的历史，更新曲线的最新观测。 Re-fetch loaded history starting with the newest page to retrieve recent observations. */
   function refreshHistory() {

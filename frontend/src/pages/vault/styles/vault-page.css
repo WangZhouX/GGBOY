@@ -1,38 +1,90 @@
-/* 金库概况标题与刷新操作在窄屏自然换行。 */
-/* Let the vault overview title and refresh control wrap on narrow screens. */
-.vault-overview {
+/* 先展示投资者仓位和操作，右侧单独展示选定金库的公开读数。 */
+/* Lead with investor holdings and actions, with public metrics for the selected vault on the right. */
+.vault-workspace {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: clamp(1.4rem, 4vw, 3.35rem);
+  align-items: start;
+  min-width: 0;
 }
 
-.vault-overview__header {
+.vault-workspace__overview {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.vault-workspace__toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin-bottom: 1.15rem;
+}
+
+.vault-workspace__toolbar > .vault-overview__refresh {
+  margin-inline-start: auto;
+}
+
+/* 两个操作入口与份额同列。窄屏可以将按钮移到说明下方。 */
+/* Keep the two action links in the position column and allow them to stack beneath the descriptions on narrow screens. */
+.vault-workspace__actions {
+  display: grid;
+}
+
+.vault-workspace__action {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.65rem 1rem;
+  gap: 0.7rem 1rem;
+  padding-block: 0.9rem;
+  border-top: 1px solid var(--border);
 }
 
-.vault-overview__header h2 {
+.vault-workspace__action p {
+  flex: 1 1 12rem;
   margin: 0;
-  font-size: 1.2rem;
-  font-weight: 690;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
 }
 
-.vault-overview__refresh {
+.vault-workspace__link,
+.vault-overview__refresh,
+.vault-selection select {
   min-height: 2.5rem;
-  padding: 0.4rem 0.8rem;
+  padding: 0.45rem 0.8rem;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   background: var(--surface);
   color: var(--accent);
   font: inherit;
   font-size: 0.875rem;
-  cursor: pointer;
 }
 
+.vault-workspace__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  font-weight: 660;
+}
+
+.vault-workspace__link--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #0c2118;
+}
+
+.vault-workspace__link:hover,
 .vault-overview__refresh:enabled:hover {
   border-color: var(--accent);
+  text-decoration: underline;
+}
+
+.vault-overview__refresh {
+  cursor: pointer;
 }
 
 .vault-overview__refresh:disabled {
@@ -40,10 +92,10 @@
   cursor: wait;
 }
 
-/* 加载、空列表与请求失败保持固定的位置和可读的提示。 */
-/* Keep loading, empty, and failed request messages in a predictable location. */
+/* 目录不可用和读取失败沿用清晰的状态信息。 */
+/* Keep catalog and chain failures visible in readable status notices. */
 .vault-overview__status {
-  margin: 0;
+  margin: 0 0 0.8rem;
   padding: 0.95rem 1rem;
   border: 1px solid var(--border);
   border-radius: 0.65rem;
@@ -56,25 +108,30 @@
   color: #ffb7b7;
 }
 
-/* 同一个金库选择器控制历史曲线和钱包份额，在窄屏允许换行。 */
-/* Use one vault selector for the history and wallet shares, with wrapping on narrow screens. */
 .vault-selection {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem 1rem;
-  margin-top: 1.7rem;
   color: var(--muted);
   font-size: 0.875rem;
 }
 
 .vault-selection select {
-  min-height: 2.5rem;
   max-width: 100%;
-  padding: 0.4rem 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 0.45rem;
-  background: var(--surface);
-  color: var(--accent);
-  font: inherit;
+}
+
+.vault-operation__navigation {
+  margin-bottom: 0.85rem;
+}
+
+.vault-operation,
+.vault-operation__unavailable {
+  max-width: 39rem;
+}
+
+@media (max-width: 850px) {
+  .vault-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

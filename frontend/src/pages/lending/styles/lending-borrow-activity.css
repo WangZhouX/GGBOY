@@ -1,0 +1,50 @@
+/* 活动在大屏平铺四列，窄屏换行保留金额和回执入口。 */
+/* Use four columns on wide screens and wrap to keep the amount and receipt accessible on narrow screens. */
+.lending-borrow-activity {
+  margin-block-start: 1.65rem;
+}
+
+.lending-borrow-activity__items {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lending-borrow-activity__items > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) auto;
+  align-items: baseline;
+  gap: 0.6rem 1rem;
+  padding-block: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.lending-borrow-activity__action {
+  font-weight: 650;
+}
+
+.lending-borrow-activity__amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.lending-borrow-activity__items time,
+.lending-borrow-activity__time {
+  color: var(--muted);
+}
+
+/* 金额、回执与对应活动保留在同一行项目内。 */
+/* Keep the amount and receipt visually grouped with their operation. */
+@media (max-width: 600px) {
+  .lending-borrow-activity__items > li {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lending-borrow-activity__amount,
+  .lending-borrow-activity__items > li > a {
+    justify-self: end;
+    text-align: end;
+  }
+}

@@ -227,6 +227,7 @@ export interface components {
             legIndex?: number;
             legType?: string;
             mint?: string;
+            symbol?: string | null;
         };
         AssetMintResponse: {
             /** Format: int32 */
@@ -326,6 +327,8 @@ export interface operations {
     listActivities: {
         parameters: {
             query: {
+                /** @description 筛选业务分类，省略时查询全部。vault 为金库，lending 为借贷，strategy 为策略管理。 Filter by business category. Omit to include all activities. Use vault, lending, or strategy. */
+                category?: "vault" | "lending" | "strategy";
                 /** @description 保持筛选不变并传回上一页的 nextCursor，首屏省略。 Pass back nextCursor with the same filters, or omit for the first page. */
                 cursor?: string;
                 /** @description 单页返回的最大事件数。 Maximum number of events per page. */

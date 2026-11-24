@@ -1,0 +1,32 @@
+/* 指标共用一组分隔行，金额按右沿对齐。 */
+/* Use one divided list for the metrics and align amounts along the right edge. */
+.lending-pool-metrics {
+  margin: 0;
+}
+
+.lending-pool-metrics > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.65rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.lending-pool-metrics dt {
+  color: var(--muted);
+}
+
+.lending-pool-metrics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.lending-pool-metrics__observation {
+  margin: 0 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.835rem;
+}
