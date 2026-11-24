@@ -1,9 +1,9 @@
 # GGBOY 链上程序
 
-使用 Rust 和 Anchor 1.2.2。工作区包含两个独立程序。策略金库初始化、存入和赎回使用原版 SPL Token Program。
+使用 Rust 和 Anchor 1.2.2。工作区包含两个独立程序。策略金库初始化、存入和赎回，以及借贷市场的初始化、出借和抵押借贷均使用原版 SPL Token Program。
 
 - **策略金库**管理资产托管、份额铸销、存款、赎回和调仓。金库 PDA 通过 CPI 向借贷池供给和提取闲置资金。
-- **抵押借贷市场**管理出借资金池、抵押仓位、借款、还款、计息和清算。两个程序分别管理各自的状态和资产。
+- **抵押借贷市场**提供市场和托管账户初始化、出借份额记账、存抵押、借款、按本金还款和取回抵押品。利率模型、出借资金提取、清算和核销属于后续阶段。两个程序分别管理各自的状态和资产。
 
 Localnet 用于开发和集成测试，Devnet 用于公开演示。演示使用自铸的六位小数 `mockUSDC`、测试抵押币、测试预言机和测试兑换程序。
 
@@ -24,6 +24,22 @@ anchor build --ignore-keys
 ## Localnet 金库初始化与存赎
 
 初始化需通过 Solana 的可升级加载器部署金库程序，由程序升级权限持有人签名，并提供已创建的六位小数原版 SPL Token 测试 USDC Mint。存赎由投资者签名，使用该钱包已有的测试 USDC 和 `GG-V` 代币账户。账户约束和定价规则见[策略金库程序说明](programs/ggboy_vault/README.md)，复现命令见[Localnet 测试说明](tests/README.md)。
+
+## Localnet 借贷市场初始化
+
+借贷程序提供 `initialize_lending_market`。当前部署的程序升级权限持有人签名，绑定已创建的六位小数借款 Mint 和测试抵押 Mint，同时创建市场 PDA、空借款资金池和空抵押托管账户。市场 PDA 持有两个托管账户的代币操作权限。账户约束见[借贷程序说明](programs/ggboy_lending/README.md)，复现命令见 [Localnet 借贷市场验收](tests/README.md#localnet-借贷市场初始化)。
+
+## Localnet 借贷市场出借与升级验收
+
+出借指令 `supply` 使用原有市场与现金托管账户，首次出借时创建独立的份额汇总和出借人仓位。程序升级保留原市场的 169 字节布局，可在同一程序地址和市场上继续操作。详见[出借业务规则](programs/ggboy_lending/README.md#出借)和 [Localnet 出借验收](tests/README.md#localnet-借贷市场出借与升级)。
+
+## Localnet 提取出借资金验收
+
+`withdraw_supply` 复用已有市场、现金托管账户和出借仓位，校验份额、最低到账和池内可支付现金。验收从旧版程序已出借的仓位开始，同地址升级后覆盖部分提取、全部提取和流动性不足回滚。 [链上提取规则](programs/ggboy_lending/README.md#提取出借资金) · [Localnet 验收脚本](tests/README.md#localnet-提取出借资金)
+
+## Localnet 抵押借款验收
+
+抵押、借款、还款和取回抵押品使用同一借款仓位。借款与有债务时取回抵押品需校验正值测试价格、7 天有效期和 70% 借款 LTV。市场和原有出借账户布局升级后继续复用。 [程序规则](programs/ggboy_lending/README.md#抵押与借款) · [独立验证器验收](tests/README.md#localnet-抵押借款全流程)
 
 ## Devnet 纯现金金库部署
 
@@ -116,6 +132,42 @@ spl-token --config "$GGBOY_DEVNET_CONFIG" balance "$GGBOY_MOCK_USDC_MINT" \
 ```
 
 发放的目标是 Phantom 的关联代币账户，供其钱包签名发起首笔存款。Phantom 使用自身的 Devnet SOL 支付交易手续费。Localnet 仍是 Anchor 工作区的默认环境，部署记录只保存公开地址和交易签名。
+
+## Devnet 借贷市场部署与登记
+
+借贷程序由 GGBOY 的 Devnet 部署钱包部署并初始化，复用了策略金库的六位小数 `mockUSDC`，独立创建九位小数的测试 `tSOL` Mint。以下记录链上公开地址。
+
+| 项目 | Devnet 值 |
+| --- | --- |
+| 借贷程序 ID | `8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H` |
+| ProgramData 地址 | `4gfh4nLgZJ6j7MS1XDEH7AK5tXqU5fe21zmZZkjLG3Ts` |
+| 管理员与升级权限 | `8a6tkp7G5SKjXwQncu8vykXPGz7qyKgwGkEZB9MuKKaY` |
+| 市场 PDA | `HzzMy19zYvQ6ZKfEgeMwuin3eMp8RFBWeRar9vzncUvE` |
+| `mockUSDC` Mint | `62vB22oh8fjXtitpKX3nLKyk9J7CVKb4ueKZcDGP1o1X` |
+| `tSOL` Mint | `AfJQ7YcnvUDncihfh9NoeF41Bw6eiB1eFcubmdw9fAg1` |
+| `mockUSDC` 资金池 | `77qJXzwVHTVs5Pny98WKyVMu895C6WBNSwtqHuXdCvz1` |
+| `tSOL` 抵押托管 | `9HHy2Z214uqcJdq5QjUvCS6TsPYpX9utBP4E1hnZ8Qf9` |
+| 部署交易 | [Solana Explorer](https://explorer.solana.com/tx/3X23Vs79azPJifQMKFj7wBSYo4zi6zYG5xcVArXyotjh1KYGYDmNSrWjt5gDXWiNp1iUX2wQyM3WLVWfmYaydEy4?cluster=devnet) |
+| 创建 `tSOL` Mint | [Solana Explorer](https://explorer.solana.com/tx/FNEVeX6aq2B7cKJKvJt9JKN24PEasjTC8kovzomCk3cvVDTjpbYYWYAwAEX9NDTecAw22NzfAY9qiq9AK8xwGCm?cluster=devnet) |
+| 初始化市场交易 | [Solana Explorer](https://explorer.solana.com/tx/3X1ruxhy2fkzMqx88jmmyZXVg51kMbMeS7Xjdcz12R8CEJiBMMVN2FVghDSkCtfPomM5SMujGdmE8jiqafV36gd1?cluster=devnet) |
+| 出借指令升级交易 | [Solana Explorer](https://explorer.solana.com/tx/H4JUdKWonCuPJ5CBs1MnmGKTgNRuvugq1vRJnN5DSBjDDktUGmwiarT4UyZxYSsUzsghiWiuZRskjSdNXeMjNKE?cluster=devnet) |
+| 出借指令升级 slot | `525420417` |
+| 抵押借款指令升级 | [Solana Explorer](https://explorer.solana.com/tx/2VGaVNtABeKuV6BkPr1Q3vtCMtZg5U858XurTN8c325CG1rT9DZr635ngNft3YdBV2wrUYnykuDbDmxjEScCrSec?cluster=devnet) |
+| 抵押借款升级 slot | `525433231` |
+| 提取出借资金升级 | [Solana Explorer](https://explorer.solana.com/tx/5E1h2VdJgohjXawpUyaaN9cmYZpYKxBipdfBFPtXvP1D6RVhWVJqunSPtdURWBQEgQ8e1h1mdq5XBo9VMq9XCExf?cluster=devnet) |
+| 提取出借资金升级 slot | `525644144` |
+| 测试价格 PDA | `4NeM7WfjHBxwFzScEeGX7TAUc7FeMDrvKBf1f6iN9znw` |
+| 初次发布测试价格（100 mockUSDC/tSOL） | [Solana Explorer](https://explorer.solana.com/tx/54kq38KvZswXsCXR3ELZLwhcTKh3guAzLDv5LBYJD11w3himTM2NMEmkwo5LdKEUptaK1FHhzYiDuoHUY2FPgb6c?cluster=devnet) |
+
+初始化后在最终确认 slot `525417695` 读取了市场与两类托管账户，核对了 Mint、PDA 权限和零余额。可用 [初始化脚本](scripts/README.md#借贷市场) 重读和验证同一部署。用 [登记 SQL](../docs/backend/register-devnet-lending-market.sql) 将实际 Devnet 市场登记到 PostgreSQL。
+
+借贷首页的「资金池现况」用后端登记识别市场，页面可直接读取已验证的托管现金。「我的借款」直接读取本金、抵押、风险和价格。用户借款需要由出借人提供已记账的 `mockUSDC` 流动性，以及由市场管理员发布有效期内的测试价格。 [价格发布和查询命令](scripts/README.md#借贷市场测试价格)
+
+Devnet 已完成抵押借款的同地址升级。最终确认后核对了程序文件、市场和两类托管账户。无签名模拟在 slot `525433379` 验证了抵押 1 tSOL、借出并还清 25 mockUSDC 和取回 1 tSOL，模拟结果的债务和抵押均为零，实际资金池仍为 100 mockUSDC。测试价格自发布时间起 7 天内有效。
+
+Devnet 完成同程序地址的出借升级。升级后的可执行文件与 Localnet 通过验收的产物逐字节一致，市场状态及两个已存在的托管账户保持原有内容。升级后模拟存入 100 mockUSDC，验证出借份额增加 100，模拟没有提交链上转账。
+
+提取出借资金在同一程序地址升级。最终确认后，使用已有的 100 份出借仓位模拟提取 1 份和全部 100 份，预期到账分别为 1 和 100 mockUSDC。超份额及最低到账超出报价均被拒绝。模拟保留仓位与资金池的实际状态。
 
 [程序目录](programs/README.md)
 

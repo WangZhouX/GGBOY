@@ -11,9 +11,10 @@ ggboy_vault = "FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75"
 ggboy_lending = "8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H"
 
 [programs.devnet]
-# Devnet 目前只部署了策略金库，地址可在链上核对。
-# The strategy vault is the only program deployed on Devnet so far. Its address is verifiable on-chain.
+# 策略金库和借贷程序的 Devnet 公共地址。
+# Public Devnet addresses of the strategy vault and lending programs.
 ggboy_vault = "FjDzSyVW7P349yHXmhazzz2d3wXkTdDvNYcMrC4HZK75"
+ggboy_lending = "8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H"
 
 [provider]
 # 默认使用本地验证器以及用户自己的本地钱包路径。
