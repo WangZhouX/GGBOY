@@ -97,7 +97,7 @@ pub struct InitializeVault<'info> {
 ///
 /// `context` 由 Anchor 校验并初始化，成功后 Anchor 将配置写入链上。
 /// Anchor validates and initializes `context`, then writes the configuration on success.
-pub(super) fn handle(context: Context<InitializeVault>) -> Result<()> {
+pub(crate) fn handle(context: Context<InitializeVault>) -> Result<()> {
     // 现金余额和已发行份额保存在 SPL 账户中，金库状态只保存绑定关系。
     // SPL accounts hold cash and supply. The vault state stores account bindings.
     context.accounts.vault.set_inner(Vault {

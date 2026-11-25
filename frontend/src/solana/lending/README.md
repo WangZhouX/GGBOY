@@ -1,6 +1,6 @@
 # Devnet 借贷客户端
 
-[devnetLendingPool.ts](devnetLendingPool.ts) 定义已部署的 Devnet 借贷程序及规范市场 PDA。市场首页通过公开 RPC 核验市场、两枚 Mint 与现金托管，取得已最终确认的池现金。在已连接钱包的出借流程中，同一最终确认观测还包括出借池账本 `SupplyPool`、钱包仓位 `SupplyPosition` 和钱包的关联 `mockUSDC` 代币账户。余额和份额以精确整数最小单位返回，账户布局来自[借贷程序状态](../../../../onchain/programs/ggboy_lending/src/state.rs)。
+[devnetLendingPool.ts](devnetLendingPool.ts) 定义已部署的 Devnet 借贷程序及规范市场 PDA。市场首页通过公开 RPC 核验市场、两枚 Mint 与现金托管，取得已最终确认的池现金。在已连接钱包的出借流程中，同一最终确认观测还包括出借池账本 `SupplyPool`、钱包仓位 `SupplyPosition` 和钱包的关联 `mockUSDC` 代币账户。余额和份额以精确整数最小单位返回，账户布局来自[借贷程序状态](../../../../onchain/programs/ggboy_lending/src/state/README.md)。
 
 [supplyLendingPool.ts](supplyLendingPool.ts) 使用池记账资产和总份额预览本次出借。空池按 1:1 计份额，后续按比例向下取整。借款资产按 Mint 精度换算，出借份额为六位小数。交易编码使用整数 `u64` 金额和最低到账份额。客户端按 [Anchor IDL](ggboyLendingIdl.json) 准备指令，使用最新可核验报价模拟交易，再交给 Phantom 签名与广播。
 

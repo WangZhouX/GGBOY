@@ -6,10 +6,8 @@ use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, TransferChecked};
 
 use ggboy_lending::cpi;
 
-use crate::{
-    state::VAULT_SEED, strategy::auto_recall_enabled, strategy_lending::withdraw_cash,
-    strategy_valuation::vault_valuation, Vault, VaultError,
-};
+use super::{strategy::auto_recall_enabled, strategy_lending::withdraw_cash};
+use crate::{state::VAULT_SEED, strategy_valuation::vault_valuation, Vault, VaultError};
 
 /// 已启用策略的金库使用六个估值账户，支持自动收回的赎回追加三个账户。
 /// Strategy vaults use six valuation accounts. Redemption with automatic recall appends three accounts.
@@ -95,7 +93,7 @@ pub struct VaultRedeem {
 /// `min_assets_out` 是投资者接受的最低 mockUSDC 最小单位数。
 /// `context` supplies validated accounts, `shares_in` is in GG-V base units,
 /// and `min_assets_out` is the minimum acceptable payout in mockUSDC base units.
-pub(super) fn handle<'info>(
+pub(crate) fn handle<'info>(
     context: Context<'info, Redeem<'info>>,
     shares_in: u64,
     min_assets_out: u64,

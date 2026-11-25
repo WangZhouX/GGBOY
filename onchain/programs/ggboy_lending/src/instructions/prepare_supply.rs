@@ -3,8 +3,8 @@
 
 use anchor_lang::prelude::*;
 
+use super::interest;
 use crate::{
-    interest,
     state::{MARKET_SEED, SUPPLY_POOL_SEED, SUPPLY_POSITION_SEED},
     LendingError, LendingMarket, SupplyPool, SupplyPosition,
 };
@@ -59,7 +59,7 @@ pub struct PrepareSupply<'info> {
 ///
 /// `context` 提供经过种子、签名和账户空间校验的市场与出借账户；绑定异常时整笔回滚。
 /// `context` supplies market and supply accounts validated by seeds, signatures and space. Invalid bindings revert the instruction.
-pub(super) fn handle(context: Context<PrepareSupply>) -> Result<()> {
+pub(crate) fn handle(context: Context<PrepareSupply>) -> Result<()> {
     // PDA 的既定市场与签名出借人公钥。
     // The canonical market and signing supplier public keys.
     let market = context.accounts.market.key();

@@ -51,7 +51,7 @@ pub struct SetMockCollateralPrice<'info> {
 ///
 /// `context` 绑定管理员、市场和规范报价 PDA。 `price_raw` 表示一整单位抵押品对应的六位精度借款资产最小单位数。
 /// `context` binds the administrator, market, and canonical quote PDA. `price_raw` gives six-decimal debt base units for one whole collateral token.
-pub(super) fn handle(context: Context<SetMockCollateralPrice>, price_raw: u64) -> Result<()> {
+pub(crate) fn handle(context: Context<SetMockCollateralPrice>, price_raw: u64) -> Result<()> {
     require!(price_raw > 0, LendingError::InvalidMockPrice);
 
     // 链上 Unix 秒由网络时钟提供，交易调用方不能延长报价的有效期。

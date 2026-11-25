@@ -8,11 +8,9 @@ use ggboy_lending::{
 };
 
 use crate::{
-    strategy::{
-        VaultStrategy, MARKET_SEED, POOL_SEED, POSITION_SEED, PRICE_SEED, STRATEGY_CUSTODY_SEED,
-        STRATEGY_SEED, STRATEGY_VAULT_LEN,
-    },
-    Vault, VaultError,
+    instructions::strategy::{MARKET_SEED, POOL_SEED, POSITION_SEED, PRICE_SEED},
+    state::{STRATEGY_CUSTODY_SEED, STRATEGY_SEED, STRATEGY_VAULT_LEN},
+    Vault, VaultError, VaultStrategy,
 };
 
 /// tSOL 最小单位到整枚的倍率，对应配置时强制的九位小数。

@@ -4,9 +4,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
+use super::interest::{self, PositionInterest};
+use super::oracle::require_fresh_price;
 use crate::{
-    interest::{self, PositionInterest},
-    oracle::require_fresh_price,
     risk::collateral_borrow_capacity,
     state::{
         BORROW_MARKET_SEED, BORROW_POSITION_SEED, CASH_VAULT_SEED, MARKET_SEED,
@@ -177,7 +177,7 @@ pub struct Repay<'info> {
 ///
 /// `recorded_assets`、`cash`、`total_debt` 均为借款 Mint 最小单位。未偿本金、现金与记账资产不一致时拒绝。
 /// `recorded_assets`, `cash`, and `total_debt` use debt mint base units. Reject inconsistent amounts.
-pub(super) fn available_accounted_cash(
+pub(crate) fn available_accounted_cash(
     recorded_assets: u64,
     cash: u64,
     total_debt: u64,
@@ -199,7 +199,7 @@ pub(super) fn available_accounted_cash(
 ///
 /// `context` 绑定市场、签名借款人、价格和托管。`amount_raw` 为借款 Mint 最小单位，必须为正。
 /// `context` binds the market, signing borrower, oracle, and custody. `amount_raw` is positive debt mint base units.
-pub(super) fn borrow(context: Context<Borrow>, amount_raw: u64) -> Result<()> {
+pub(crate) fn borrow(context: Context<Borrow>, amount_raw: u64) -> Result<()> {
     require!(amount_raw > 0, LendingError::InvalidBorrowAmount);
     let accounts = context.accounts;
 
@@ -353,7 +353,7 @@ pub(super) fn borrow(context: Context<Borrow>, amount_raw: u64) -> Result<()> {
 ///
 /// `context` 绑定签名钱包、已有仓位及资金池。`amount_raw` 必须为正且至多为未偿本金。
 /// `context` binds the signer, existing position, and pool. `amount_raw` is positive and cannot exceed principal.
-pub(super) fn repay(context: Context<Repay>, amount_raw: u64) -> Result<()> {
+pub(crate) fn repay(context: Context<Repay>, amount_raw: u64) -> Result<()> {
     require!(amount_raw > 0, LendingError::InvalidBorrowAmount);
     let accounts = context.accounts;
 

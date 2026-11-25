@@ -4,8 +4,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
+use super::interest;
 use crate::{
-    interest,
     state::{CASH_VAULT_SEED, MARKET_SEED, SUPPLY_POOL_SEED, SUPPLY_POSITION_SEED},
     LendingError, LendingMarket, SupplyPool, SupplyPosition,
 };
@@ -134,7 +134,7 @@ fn calculate_shares(assets_in: u64, accounted_assets: u64, total_shares: u64) ->
 /// `context` binds the market and signing supplier. `assets_in` and `min_shares_out` are positive six-decimal base-unit quantities.
 /// 任何账户条件、报价或 SPL 转账失败时，仓位、池记账和代币余额保持原样。
 /// A failed account constraint, quote, or SPL transfer leaves positions, accounting, and token balances unmodified.
-pub(super) fn handle(context: Context<Supply>, assets_in: u64, min_shares_out: u64) -> Result<()> {
+pub(crate) fn handle(context: Context<Supply>, assets_in: u64, min_shares_out: u64) -> Result<()> {
     require!(assets_in > 0, LendingError::InvalidSupplyAmount);
     require!(min_shares_out > 0, LendingError::InvalidMinimumSupplyShares);
 

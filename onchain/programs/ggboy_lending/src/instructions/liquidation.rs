@@ -4,10 +4,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
+use super::debt::available_accounted_cash;
+use super::interest::{self, PoolInterest, PositionInterest};
+use super::oracle::require_fresh_price;
 use crate::{
-    debt::available_accounted_cash,
-    interest::{self, PoolInterest, PositionInterest},
-    oracle::require_fresh_price,
     state::{
         BORROW_MARKET_SEED, BORROW_POSITION_SEED, CASH_VAULT_SEED, COLLATERAL_VAULT_SEED,
         MARKET_SEED, MOCK_COLLATERAL_PRICE_SEED, SUPPLY_POOL_SEED,
@@ -489,7 +489,7 @@ fn legacy_settlement(accounts: &Liquidate, terms: Terms) -> Result<Settlement> {
 ///
 /// `repay_raw` 和 `min_collateral_raw` 为各自资产最小单位，均为正；双零只允许无法代偿的坏账冲销。
 /// Normal `repay_raw` and `min_collateral_raw` are positive base units. Both may be zero only for unrecoverable debt.
-pub(super) fn handle(
+pub(crate) fn handle(
     context: Context<Liquidate>,
     repay_raw: u64,
     min_collateral_raw: u64,

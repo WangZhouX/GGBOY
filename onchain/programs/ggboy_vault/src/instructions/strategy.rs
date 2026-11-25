@@ -6,15 +6,13 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 use ggboy_lending::LendingMarket;
 
 use crate::{
-    state::VAULT_SEED,
+    state::{STRATEGY_CUSTODY_SEED, STRATEGY_SEED, STRATEGY_VAULT_LEN, VAULT_SEED},
     strategy_valuation::{inspect_pool, read_price, spot_value, STRATEGY_SCALE},
-    Vault, VaultError,
+    Vault, VaultError, VaultStrategy,
 };
 
-/// 策略配置及测试兑换相关 PDA 种子。
-/// Seeds for strategy configuration and test exchange PDAs.
-pub(crate) const STRATEGY_SEED: &[u8] = b"strategy";
-pub(crate) const STRATEGY_CUSTODY_SEED: &[u8] = b"strategy_custody";
+/// 双向测试兑换使用的现金与策略资产储备 PDA 种子。
+/// PDA seeds for cash and spot reserves used by two-way test swaps.
 const SWAP_CASH_SEED: &[u8] = b"swap_cash";
 const SWAP_STRATEGY_SEED: &[u8] = b"swap_strategy";
 
@@ -27,10 +25,6 @@ pub(crate) const POSITION_SEED: &[u8] = b"supply_position";
 pub(crate) const BORROW_MARKET_SEED: &[u8] = b"borrow_market";
 pub(crate) const LENDING_CASH_SEED: &[u8] = b"cash_vault";
 
-/// 策略启用后保留原始布局并追加一字节，旧账户以原始长度继续运行。
-/// Strategy activation appends one byte without shifting the old layout. Old-length accounts keep running.
-pub(crate) const STRATEGY_VAULT_LEN: usize = Vault::DISCRIMINATOR.len() + Vault::INIT_SPACE + 1;
-
 /// 策略金库末尾功能字节最低位表示允许投资者自动收回。
 /// The low bit of the strategy vault's trailing capability byte enables investor auto recall.
 const AUTO_RECALL_FLAG: u8 = 1;
@@ -39,29 +33,6 @@ const AUTO_RECALL_FLAG: u8 = 1;
 /// Rates use basis points. The nine-decimal test strategy mint has a fixed base-unit scale.
 pub(crate) const BPS_DENOMINATOR: u128 = 10_000;
 const STRATEGY_DECIMALS: u8 = 9;
-
-/// 管理者及单个策略资产/市场的链上配置。金额限制按交易前净值计算。
-/// On-chain manager and single-asset/market configuration. Limits use pre-transaction NAV.
-#[account]
-#[derive(InitSpace)]
-pub struct VaultStrategy {
-    /// 账户所属的金库 PDA。 Vault PDA owning this configuration.
-    pub vault: Pubkey,
-    /// 拥有资金操作授权的钱包。 Wallet authorized to perform strategy operations.
-    pub manager: Pubkey,
-    /// 九位小数的策略资产 Mint。 Nine-decimal strategy asset mint.
-    pub strategy_mint: Pubkey,
-    /// 使用相同一对资产的借贷市场 PDA。 Lending market PDA using the same asset pair.
-    pub market: Pubkey,
-    /// 出借后须保留的最低金库现金，单位为净值基点。 Minimum post-lending cash in NAV basis points.
-    pub reserve_bps: u16,
-    /// 允许的最高出借估值，单位为净值基点。 Maximum lending valuation in NAV basis points.
-    pub lending_cap_bps: u16,
-    /// 最大单笔兑换估值，单位为净值基点。 Maximum per-swap value in NAV basis points.
-    pub max_trade_bps: u16,
-    /// 配置 PDA 的规范 bump。 Canonical configuration PDA bump.
-    pub bump: u8,
-}
 
 /// 由原管理员一次性为既有金库配置策略及独立测试储备。
 /// One-time setup of strategy and separate test reserves by the existing vault administrator.
@@ -192,7 +163,7 @@ pub struct VaultStrategyAction {
 
 /// 保存一次性策略配置。比例为 0 至 10,000 基点，交易上限必须为正。
 /// Save one-time configuration. Ratios span 0 to 10,000 basis points, with a positive trade limit.
-pub(super) fn initialize(
+pub(crate) fn initialize(
     context: Context<InitializeVaultStrategy>,
     manager: Pubkey,
     reserve_bps: u16,
@@ -224,7 +195,7 @@ pub(super) fn initialize(
 
 /// 管理员确认现有策略金库可以使用扩展赎回账户，重复调用没有额外影响。
 /// Enable extended redemption accounts for an existing strategy vault. Repeated calls are idempotent.
-pub(super) fn enable_auto_recall(context: Context<EnableAutoRecall>) -> Result<()> {
+pub(crate) fn enable_auto_recall(context: Context<EnableAutoRecall>) -> Result<()> {
     set_auto_recall_bit(&context.accounts.vault)
 }
 
@@ -280,7 +251,7 @@ fn swap_output(buy: bool, amount_in: u64, price: u64) -> Result<u64> {
 ///
 /// `amount_in` / `min_out` 按输入与输出各自 Mint 的最小单位计。
 /// `amount_in` and `min_out` use the input and output mint's respective base units.
-pub(super) fn swap(
+pub(crate) fn swap(
     context: Context<StrategySwap>,
     buy: bool,
     amount_in: u64,
@@ -424,7 +395,7 @@ pub struct VaultStrategyDustCleared {
 ///
 /// 沿用兑换的账户约束，且不会从现金储备付款。没有尾仓、尾仓有价值或价格失效时拒绝。
 /// Reuse swap account bindings without paying out of cash reserves. Reject no spot, positive value, or an invalid price.
-pub(super) fn clear_dust(context: Context<StrategySwap>) -> Result<()> {
+pub(crate) fn clear_dust(context: Context<StrategySwap>) -> Result<()> {
     // 金额只能是金库当前策略余额，不能由用户选择一笔本可变现仓位中的零头。
     // The amount is the full current spot balance, never a caller-selected fragment of valuable holdings.
     let accounts = context.accounts;

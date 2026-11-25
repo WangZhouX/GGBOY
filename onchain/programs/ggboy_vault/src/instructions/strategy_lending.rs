@@ -5,14 +5,14 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 use ggboy_lending::{cpi, program::GgboyLending, LendingMarket, SupplyPool, SupplyPosition};
 
+use super::strategy::{
+    bps_ceil, bps_floor, VaultStrategyAction, BORROW_MARKET_SEED, LENDING_CASH_SEED, POOL_SEED,
+    POSITION_SEED,
+};
 use crate::{
-    state::VAULT_SEED,
-    strategy::{
-        bps_ceil, bps_floor, VaultStrategy, VaultStrategyAction, BORROW_MARKET_SEED,
-        LENDING_CASH_SEED, POOL_SEED, POSITION_SEED, STRATEGY_CUSTODY_SEED, STRATEGY_SEED,
-    },
+    state::{STRATEGY_CUSTODY_SEED, STRATEGY_SEED, VAULT_SEED},
     strategy_valuation::{inspect_pool, read_price, spot_value},
-    Vault, VaultError,
+    Vault, VaultError, VaultStrategy,
 };
 
 /// 管理者以金库 PDA 为出借者，首次仓位的租金由管理者签名支付。
@@ -113,7 +113,7 @@ pub struct StrategyRecall<'info> {
 ///
 /// `assets_in` 是结算代币最小单位，`min_shares_out` 是池份额最小单位。
 /// `assets_in` is in settlement base units, and `min_shares_out` is in pool share base units.
-pub(super) fn lend(
+pub(crate) fn lend(
     context: Context<StrategyLend>,
     assets_in: u64,
     min_shares_out: u64,
@@ -212,7 +212,7 @@ pub(super) fn lend(
 ///
 /// `shares_in` 是池份额最小单位，`min_assets_out` 是最低结算代币最小单位。
 /// `shares_in` is in pool share base units and `min_assets_out` in settlement base units.
-pub(super) fn recall(
+pub(crate) fn recall(
     context: Context<StrategyRecall>,
     shares_in: u64,
     min_assets_out: u64,

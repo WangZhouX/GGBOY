@@ -7,6 +7,10 @@ use anchor_lang::prelude::*;
 /// Fixed seed that gives each deployment one vault state address.
 pub(crate) const VAULT_SEED: &[u8] = b"vault";
 
+/// 策略启用后保留原始布局并追加一字节，旧账户以原始长度继续运行。
+/// Strategy activation appends one byte without shifting the old layout. Old-length accounts keep running.
+pub(crate) const STRATEGY_VAULT_LEN: usize = Vault::DISCRIMINATOR.len() + Vault::INIT_SPACE + 1;
+
 /// 记录单个金库的管理员、资产账户绑定和授权 PDA 参数。
 /// Stores the singleton vault administrator, asset account bindings, and authority PDA parameter.
 #[account]

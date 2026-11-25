@@ -4,9 +4,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
+use super::interest;
+use super::oracle::require_fresh_price;
 use crate::{
-    interest,
-    oracle::require_fresh_price,
     risk::collateral_borrow_capacity,
     state::{BORROW_POSITION_SEED, COLLATERAL_VAULT_SEED, MARKET_SEED, MOCK_COLLATERAL_PRICE_SEED},
     BorrowPosition, LendingBorrowAction, LendingError, LendingMarket, MockCollateralPrice,
@@ -151,7 +151,7 @@ pub struct WithdrawCollateral<'info> {
 /// `context` binds the market, borrower, and token accounts. `amount_raw` is positive collateral mint base units.
 /// 代币转账或仓位账户校验失败会让首次建仓和余额变动一同回滚。
 /// A transfer or account check failure reverts any first-position creation and balance changes.
-pub(super) fn deposit(context: Context<DepositCollateral>, amount_raw: u64) -> Result<()> {
+pub(crate) fn deposit(context: Context<DepositCollateral>, amount_raw: u64) -> Result<()> {
     require_gt!(amount_raw, 0, LendingError::InvalidBorrowAmount);
 
     // 记录规范市场与签名人的公钥，便于同时验证已有仓位和初始化新仓位。
@@ -224,7 +224,7 @@ pub(super) fn deposit(context: Context<DepositCollateral>, amount_raw: u64) -> R
 /// `context` binds the existing position and custody. `amount_raw` is positive collateral mint base units.
 /// 无债仓位可在价格不可用时取回全部抵押品。有债仓位须通过价格时效和额度校验。
 /// A debt-free position can withdraw all collateral without a price. An open loan requires fresh pricing and sufficient backing.
-pub(super) fn withdraw(context: Context<WithdrawCollateral>, amount_raw: u64) -> Result<()> {
+pub(crate) fn withdraw(context: Context<WithdrawCollateral>, amount_raw: u64) -> Result<()> {
     require_gt!(amount_raw, 0, LendingError::InvalidBorrowAmount);
 
     // 先限制可付金额和当前借款人登记的余额，避免动用其他仓位的抵押品。

@@ -108,7 +108,7 @@ GGBOY/
 │   ├── ggboy-core/  业务值对象和业务类型
 │   └── ggboy-common/ 公共响应、错误类型和通用校验
 └── onchain/         Anchor 工作区
-    ├── programs/    金库、借贷和测试兑换程序
+    ├── programs/    金库与借贷程序，测试兑换由金库程序处理
     ├── scripts/     部署、创建测试代币与演示初始化
     └── tests/       链上业务与跨程序集成测试
 ```

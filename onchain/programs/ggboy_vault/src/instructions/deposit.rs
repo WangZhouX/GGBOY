@@ -85,7 +85,7 @@ pub struct VaultDeposit {
 /// `min_shares_out` 为投资者接受的最低 GG-V 最小单位数。
 /// `context` supplies validated accounts, `assets_in` is in mockUSDC base units,
 /// and `min_shares_out` is the investor's minimum in GG-V base units.
-pub(super) fn handle(context: Context<Deposit>, assets_in: u64, min_shares_out: u64) -> Result<()> {
+pub(crate) fn handle(context: Context<Deposit>, assets_in: u64, min_shares_out: u64) -> Result<()> {
     // 零金额和零到账下限都不构成有效存入请求。
     // A zero deposit amount or a zero minimum does not constitute a valid request.
     require_gt!(assets_in, 0, VaultError::InvalidDepositAmount);

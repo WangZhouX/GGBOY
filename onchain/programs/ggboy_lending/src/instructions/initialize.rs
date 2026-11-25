@@ -104,7 +104,7 @@ pub struct InitializeLendingMarket<'info> {
 ///
 /// `context` 包含 Anchor 校验和创建的账户。交易成功时三个账户一同生效。
 /// `context` contains the accounts Anchor validates and creates. All three accounts take effect together on success.
-pub(super) fn handle(context: Context<InitializeLendingMarket>) -> Result<()> {
+pub(crate) fn handle(context: Context<InitializeLendingMarket>) -> Result<()> {
     // 两种资产的实际余额保存在各自的 SPL 账户，市场状态集中保存绑定关系。
     // Each SPL account holds its actual token balance. Market state stores their bindings.
     context.accounts.market.set_inner(LendingMarket {
