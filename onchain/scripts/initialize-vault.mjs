@@ -77,7 +77,11 @@ function verifyVault(addresses, bump, discriminator, accounts) {
   const keySize = 32;
   const expectedKeys = [addresses.administrator, addresses.asset_mint, addresses.cash_vault, addresses.share_mint];
   const bumpOffset = stateStart + expectedKeys.length * keySize;
-  assert.ok(state.data.length === bumpOffset + 1 && state.data.subarray(0, stateStart).equals(discriminator)
+  // 策略激活在原字段后扩展一字节，核验继续使用相同的公钥与 bump 偏移。
+  // Strategy activation appends one byte. Verification continues to use the original key and bump offsets.
+  const legacyLength = bumpOffset + 1;
+  assert.ok([legacyLength, legacyLength + 1].includes(state.data.length)
+    && state.data.subarray(0, stateStart).equals(discriminator)
     && state.data[bumpOffset] === bump, 'Unexpected Vault account layout or PDA bump.');
   for (const [index, expectedKey] of expectedKeys.entries()) {
     /** 当前绑定公钥在 Vault 账户中的字节偏移。 Byte offset of the current binding key in the Vault account. */

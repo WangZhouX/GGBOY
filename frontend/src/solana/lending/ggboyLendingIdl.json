@@ -496,6 +496,149 @@
       ]
     },
     {
+      "name": "enable_interest",
+      "docs": [
+        "在未偿旧债务归零后，由市场管理员启用固定点计息。",
+        "The administrator enables fixed-point interest after outstanding legacy debt reaches zero."
+      ],
+      "discriminator": [
+        95,
+        178,
+        84,
+        156,
+        10,
+        217,
+        208,
+        31
+      ],
+      "accounts": [
+        {
+          "name": "administrator",
+          "docs": [
+            "签名管理员为池账本增加免租余额。 The signing administrator funds the larger ledger's rent exemption."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "market",
+          "docs": [
+            "绑定已登记管理员和现金托管的规范市场。 Canonical market binding its administrator and cash custody."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              }
+            ]
+          },
+          "relations": [
+            "supply_pool"
+          ]
+        },
+        {
+          "name": "supply_pool",
+          "docs": [
+            "已初始化的池账本保留原有余额和份额，扩充数据用于计息。",
+            "The initialized supply pool keeps its assets and shares and expands to store interest accounting."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  108,
+                  121,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrow_market",
+          "docs": [
+            "Canonical debt ledger PDA. It can be absent before a loan. The handler validates any initialized ledger and requires zero outstanding debt."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "已绑定市场和借款 Mint 的现金托管账户。 Canonical cash custody for the market and its debt mint."
+          ],
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "调整账本数据大小时支付用于免租差额。 Used to fund the rent difference for the larger ledger."
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "initialize_lending_market",
       "docs": [
         "由程序升级权限持有人创建市场及两种资产的独立托管账户。",
@@ -674,6 +817,348 @@
       "args": []
     },
     {
+      "name": "liquidate",
+      "docs": [
+        "清算人代付超出清算阈值仓位的债务并获得抵押品，无法回收的债务冲减出借池资产。",
+        "Repay a position beyond the liquidation threshold and seize collateral. Write unrecoverable debt off against pool assets.",
+        "",
+        "两项参数是各自资产最小单位。双零仅用于无法覆盖一最小单位代偿的坏账。",
+        "Both arguments use their respective asset base units. Two zeros are accepted only for debt with no repayable unit."
+      ],
+      "discriminator": [
+        223,
+        179,
+        226,
+        125,
+        48,
+        46,
+        39,
+        74
+      ],
+      "accounts": [
+        {
+          "name": "liquidator",
+          "docs": [
+            "承担代偿并接收抵押品的签名人，须与仓位借款人不同。",
+            "Signer funding the repayment and receiving collateral, distinct from the borrower."
+          ],
+          "signer": true
+        },
+        {
+          "name": "market",
+          "docs": [
+            "规范市场及其绑定的两种 Mint 和两个托管账户。",
+            "Canonical market binding both mints and both custody accounts."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              }
+            ]
+          },
+          "relations": [
+            "supply_pool",
+            "borrow_market",
+            "borrow_position",
+            "mock_collateral_price"
+          ]
+        },
+        {
+          "name": "debt_mint",
+          "docs": [
+            "用于代偿的借款 Mint，转账核对其小数精度。",
+            "Debt mint used for repayment, with decimals checked during transfer."
+          ],
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "collateral_mint",
+          "docs": [
+            "用于领取的抵押 Mint，其小数精度也用于清算报价。",
+            "Collateral mint paid out, with decimals also used for the liquidation quote."
+          ],
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "市场 PDA 控制的独立借款现金托管。",
+            "Separate debt-token cash custody under market PDA authority."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          },
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "collateral_vault",
+          "docs": [
+            "市场 PDA 控制的独立抵押托管。",
+            "Separate collateral custody under market PDA authority."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  108,
+                  108,
+                  97,
+                  116,
+                  101,
+                  114,
+                  97,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          },
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "liquidator_debt",
+          "docs": [
+            "签名人持有的借款 Mint 关联账户，支付实际代偿额。",
+            "Signer's debt mint ATA paying the actual repayment."
+          ],
+          "writable": true
+        },
+        {
+          "name": "liquidator_collateral",
+          "docs": [
+            "签名人持有的抵押 Mint 关联账户，接收实际扣划的数量。",
+            "Signer's collateral mint ATA receiving the actual seized amount."
+          ],
+          "writable": true
+        },
+        {
+          "name": "supply_pool",
+          "docs": [
+            "规范出借池，坏账冲减其记账资产，不修改已登记的份额。",
+            "Canonical supply pool whose recorded assets absorb bad debt without changing shares."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  108,
+                  121,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrow_market",
+          "docs": [
+            "规范市场借款总账，代偿与坏账共同减少未偿债务。",
+            "Canonical debt ledger reduced by repayment and write-off."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrow_position",
+          "docs": [
+            "使用仓位内已验证的借款人和所属市场检查规范 PDA，无需借款人签名。",
+            "Canonical PDA derived from its stored borrower and verified market, without a borrower signature."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.borrower",
+                "account": "BorrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mock_collateral_price",
+          "docs": [
+            "市场自己的规范测试价格，处理函数还校验发布时间。",
+            "Canonical test price for the same market, with publication time checked by the handler."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  99,
+                  107,
+                  95,
+                  99,
+                  111,
+                  108,
+                  108,
+                  97,
+                  116,
+                  101,
+                  114,
+                  97,
+                  108,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "执行两条代币转账的原版 SPL Token 程序。",
+            "Classic SPL Token program executing both token transfers."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "repay_raw",
+          "type": "u64"
+        },
+        {
+          "name": "min_collateral_raw",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "ping",
       "docs": [
         "验证脚手架指令可以调用，返回成功且不读写链上账户。",
@@ -693,6 +1178,156 @@
         153
       ],
       "accounts": [],
+      "args": []
+    },
+    {
+      "name": "prepare_supply",
+      "docs": [
+        "准备借贷池和签名出借人的仓位，由独立付款人承担首次创建费用。",
+        "Prepare the lending pool and signing supplier's position using a separate rent payer.",
+        "",
+        "`context` 识别市场、签名出借人与付款人。已有份额和记账余额不变，无代币转账。",
+        "`context` identifies the market, signing supplier, and payer. Existing shares and accounting balances are preserved without moving tokens."
+      ],
+      "discriminator": [
+        211,
+        57,
+        187,
+        71,
+        86,
+        239,
+        198,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "为尚不存在的 PDA 支付免租金余额的签名账户。",
+            "Signing account that funds the rent-exempt balance for missing PDAs."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "supplier",
+          "docs": [
+            "拥有出借份额的签名账户，可以由调用程序为自己的 PDA 签名。",
+            "Signing owner of supply shares, including a PDA signed for by the calling program."
+          ],
+          "signer": true
+        },
+        {
+          "name": "market",
+          "docs": [
+            "本程序部署已初始化的规范市场 PDA。",
+            "Initialized canonical market PDA of this program deployment."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "supply_pool",
+          "docs": [
+            "市场的份额总账；存在时沿用原资产值和总份额。",
+            "Market-wide supply ledger. Preserve the asset value and total shares when it exists."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  108,
+                  121,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "supply_position",
+          "docs": [
+            "归属于签名出借人与市场的份额仓位；存在时沿用已有份额。",
+            "Position owned by the signing supplier in this market. Preserve any existing shares."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  108,
+                  121,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "supplier"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "为未建立的 PDA 分配账户空间并转入免租金余额。",
+            "Allocates space and transfers rent-exempt balances to missing PDAs."
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
       "args": []
     },
     {
@@ -1802,6 +2437,19 @@
       ]
     },
     {
+      "name": "LendingLiquidation",
+      "discriminator": [
+        113,
+        24,
+        182,
+        113,
+        114,
+        30,
+        191,
+        195
+      ]
+    },
+    {
       "name": "LendingSupply",
       "discriminator": [
         133,
@@ -1983,6 +2631,61 @@
       "code": 6030,
       "name": "InsufficientSupplyWithdrawalLiquidity",
       "msg": "Insufficient accounted cash for the requested supply withdrawal"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidInterestAccounting",
+      "msg": "Lending interest accounting is inconsistent"
+    },
+    {
+      "code": 6032,
+      "name": "InterestAccountsRequired",
+      "msg": "Indexed lending requires its writable supply pool"
+    },
+    {
+      "code": 6033,
+      "name": "InterestAlreadyEnabled",
+      "msg": "Lending interest is already active"
+    },
+    {
+      "code": 6034,
+      "name": "LegacyDebtOutstanding",
+      "msg": "Repay outstanding legacy debt before enabling interest"
+    },
+    {
+      "code": 6035,
+      "name": "ZeroIndexedRepayment",
+      "msg": "Repayment rounds down to zero"
+    },
+    {
+      "code": 6036,
+      "name": "SelfLiquidation",
+      "msg": "A borrower cannot liquidate their own position"
+    },
+    {
+      "code": 6037,
+      "name": "InvalidLiquidatorTokenAccount",
+      "msg": "Invalid associated token account for the liquidator"
+    },
+    {
+      "code": 6038,
+      "name": "PositionNotLiquidatable",
+      "msg": "Position does not exceed the liquidation threshold"
+    },
+    {
+      "code": 6039,
+      "name": "InvalidLiquidationAmount",
+      "msg": "Invalid liquidation repayment or collateral minimum"
+    },
+    {
+      "code": 6040,
+      "name": "ZeroLiquidationCollateral",
+      "msg": "Liquidation rounds down to zero collateral"
+    },
+    {
+      "code": 6041,
+      "name": "MinimumLiquidationCollateralNotMet",
+      "msg": "Calculated collateral output is below the signed minimum"
     }
   ],
   "types": [
@@ -2112,6 +2815,74 @@
             "docs": [
               "操作后剩余的借款 Mint 本金最小单位数。",
               "Outstanding principal in debt mint base units after this action."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LendingLiquidation",
+      "docs": [
+        "清算或坏账结算成功后产生的实际变动，供索引和回执读取。",
+        "Settled liquidation or write-off amounts for indexing and receipts."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "docs": [
+              "结算所在借贷市场公钥。 Lending market public key."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "borrower",
+            "docs": [
+              "被清算的借款人公钥。 Borrower whose position was liquidated."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "liquidator",
+            "docs": [
+              "发起清算的签名钱包公钥。 Signing liquidator's public key."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_mint",
+            "docs": [
+              "代偿资产 Mint 公钥。 Repayment asset mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_mint",
+            "docs": [
+              "扣划资产 Mint 公钥。 Seized collateral mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "repaid_raw",
+            "docs": [
+              "清算人实际代偿额，按借款 Mint 最小单位计。 Actual repayment in debt mint base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "seized_collateral_raw",
+            "docs": [
+              "清算人实际收取量，按抵押 Mint 最小单位计。 Actual seizure in collateral mint base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bad_debt_raw",
+            "docs": [
+              "已冲减出借池的坏账，按借款 Mint 最小单位计。 Written-off debt in debt mint base units."
             ],
             "type": "u64"
           }

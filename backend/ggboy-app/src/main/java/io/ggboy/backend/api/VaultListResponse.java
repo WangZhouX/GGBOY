@@ -67,6 +67,8 @@ public record VaultListResponse(List<Item> items) {
      *        Total net asset value in quote asset base units, or null when unavailable.
      * @param totalSharesRaw 已发行份额总量，单位为份额资产最小单位。
      *        Total outstanding shares in share asset base units.
+     * @param autoRecallEnabled 本次观测的链上状态是否允许赎回时自动收回借贷流动性。
+     *        Whether the observed on-chain state allows automatic recall during redemption.
      * @param freshness 根据采集时间与配置阈值确定的新鲜度。
      *        Freshness determined from the observation time and configured threshold.
      */
@@ -81,6 +83,7 @@ public record VaultListResponse(List<Item> items) {
             String lendingWithdrawableRaw,
             String navRaw,
             String totalSharesRaw,
+            boolean autoRecallEnabled,
             SnapshotFreshness freshness
     ) {
     }

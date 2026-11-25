@@ -69,21 +69,21 @@ CREATE TABLE chain_event_asset (
     mint_address varchar(44) NOT NULL,
     decimals smallint NOT NULL CHECK (decimals BETWEEN 0 AND 255),
     amount_raw numeric(20,0) NOT NULL CHECK (amount_raw BETWEEN 0 AND 18446744073709551615),
-    leg_type varchar(24) NOT NULL CHECK (leg_type IN ('ASSET_IN', 'ASSET_OUT', 'SHARES_MINTED', 'SHARES_BURNED', 'DEBT_REPAID', 'COLLATERAL_SEIZED')),
+    leg_type varchar(24) NOT NULL CHECK (leg_type IN ('ASSET_IN', 'ASSET_OUT', 'SHARES_MINTED', 'SHARES_BURNED', 'DEBT_REPAID', 'COLLATERAL_SEIZED', 'BAD_DEBT')),
     PRIMARY KEY (network, signature, event_index, leg_index),
     FOREIGN KEY (network, signature, event_index)
         REFERENCES chain_event (network, signature, event_index)
 );
 
-COMMENT ON TABLE chain_event_asset IS '事件中的一项实际资产变动，保存当时的 Mint 和精度。 / One actual asset movement in an event, including its mint and precision at the time.';
+COMMENT ON TABLE chain_event_asset IS '事件中的一项资产变动或坏账核销，保存当时的 Mint 和精度。 / One asset movement or bad debt write-off in an event, including its mint and precision at the time.';
 COMMENT ON COLUMN chain_event_asset.network IS 'Solana 网络，限 localnet 和 devnet。 / Solana network, either localnet or devnet.';
 COMMENT ON COLUMN chain_event_asset.signature IS 'Solana 交易主签名，Base58 编码。 / Primary Solana transaction signature in Base58.';
 COMMENT ON COLUMN chain_event_asset.event_index IS '事件在整笔交易日志中的零基稳定序号。 / Stable zero-based index of the event in the full transaction log.';
 COMMENT ON COLUMN chain_event_asset.leg_index IS '事件内的零基资产变动序号，由事件映射定义。 / Zero-based asset movement index within the event, defined by its mapping.';
 COMMENT ON COLUMN chain_event_asset.mint_address IS '交易发生时的 SPL Token Mint 地址，包括份额 Mint。 / SPL token mint address at the time of the transaction, including share mints.';
 COMMENT ON COLUMN chain_event_asset.decimals IS '该 Mint 的小数位数，用于展示最小单位金额。 / Decimal precision of the mint, used to display base-unit amounts.';
-COMMENT ON COLUMN chain_event_asset.amount_raw IS '实际资产变动量，使用对应代币的最小单位。 / Actual amount moved in base units of the associated token.';
-COMMENT ON COLUMN chain_event_asset.leg_type IS '资产变动的业务语义。出入方向依据事件主体定义。 / Meaning of the asset movement. Direction is relative to the event subject.';
+COMMENT ON COLUMN chain_event_asset.amount_raw IS '转账或账面损失的金额，使用对应代币的最小单位。 / Amount transferred or written off in base units of the associated token.';
+COMMENT ON COLUMN chain_event_asset.leg_type IS '转账或核销的业务语义。BAD_DEBT 表示借款资产账面损失。 / Business meaning of the transfer or write-off. BAD_DEBT represents a book loss in the debt asset.';
 
 -- 链上索引与快照 / Phase 2 chain indexing and snapshots
 
@@ -197,13 +197,19 @@ CREATE TABLE vault_snapshot (
     lending_withdrawable_raw numeric(39,0) NOT NULL CHECK (lending_withdrawable_raw >= 0 AND lending_withdrawable_raw <> 'NaN'::numeric),
     nav_raw numeric(39,0) CHECK (nav_raw >= 0 AND nav_raw <> 'NaN'::numeric),
     total_shares_raw numeric(20,0) NOT NULL CHECK (total_shares_raw BETWEEN 0 AND 18446744073709551615),
+    auto_recall_enabled boolean NOT NULL DEFAULT false,
+    lending_position_open boolean,
     PRIMARY KEY (network, vault_address, slot),
     FOREIGN KEY (network, vault_address)
         REFERENCES vault (network, vault_address),
     CHECK (lending_withdrawable_raw <= lend_value_raw),
     CHECK ((nav_raw IS NULL) = (strategy_value_raw IS NULL)),
     CHECK (nav_raw = cash_raw + strategy_value_raw + lend_value_raw),
-    CHECK (oracle_slot <= slot)
+    CHECK (oracle_slot <= slot),
+    CONSTRAINT vault_snapshot_recall_position_known
+        CHECK (NOT auto_recall_enabled OR lending_position_open IS NOT NULL),
+    CONSTRAINT vault_snapshot_closed_lending_value_zero
+        CHECK (lending_position_open IS DISTINCT FROM false OR lend_value_raw = 0)
 );
 
 COMMENT ON TABLE vault_snapshot IS '金库在某一最终确认观测 slot 的估值、资金分布和赎回流动性。 / Vault valuation, allocation and redemption liquidity at a finalized observation slot.';
@@ -219,6 +225,8 @@ COMMENT ON COLUMN vault_snapshot.lend_value_raw IS '出借仓位账面价值，�
 COMMENT ON COLUMN vault_snapshot.lending_withdrawable_raw IS '当前可从借贷池提取的金额，单位为计价 Mint 最小单位。 / Amount currently withdrawable from the lending pool, in quote mint base units.';
 COMMENT ON COLUMN vault_snapshot.nav_raw IS '金库现金、策略估值和出借价值之和，单位为计价 Mint 最小单位。策略估值为空时为空。 / Sum of vault cash, strategy value and lending value in quote mint base units. Null if strategy value is unavailable.';
 COMMENT ON COLUMN vault_snapshot.total_shares_raw IS '当前已发行的份额总量，单位为份额 Mint 最小单位。 / Current outstanding share supply in base units of the share mint.';
+COMMENT ON COLUMN vault_snapshot.auto_recall_enabled IS '同一观测 slot 的 Vault 状态是否允许赎回时自动收回借贷流动性。旧记录默认为 false。 / Whether the same-slot Vault state allowed automatic recall during redemption. Historical rows default to false.';
+COMMENT ON COLUMN vault_snapshot.lending_position_open IS '同一观测 slot 的金库出借份额是否大于零。旧记录为空表示未采集此状态。 / Whether vault lending shares were nonzero at the same observed slot. Null means this state was not collected for the historical row.';
 
 CREATE TABLE lending_market_snapshot (
     network varchar(16) NOT NULL CHECK (network IN ('localnet', 'devnet')),

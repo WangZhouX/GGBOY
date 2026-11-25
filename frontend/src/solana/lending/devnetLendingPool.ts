@@ -4,6 +4,7 @@ import {
 } from '@solana/spl-token';
 import { Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, SystemProgram, type AccountInfo } from '@solana/web3.js';
 import { devnetRpcUrl } from '../getDevnetSolBalance';
+import { lendingInterestLayouts, projectLendingInterest, projectLendingPositionDebt } from './lendingInterest';
 
 /** Devnet 借贷程序及其可升级加载器的公开地址。 Public addresses of the Devnet lending program and its upgradeable loader. */
 const programId = new PublicKey('8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H');
@@ -32,14 +33,14 @@ const debtMintDecimals = 6;
 export const lendingShareDecimals = 6;
 /** 出借账户的判别符及字段偏移，取自链上程序的 IDL 与 Rust 状态。 Supply account discriminators and offsets from the program IDL and Rust state. */
 const supplyPoolDiscriminator = [238, 91, 229, 152, 53, 213, 165, 153];
-const supplyPoolLayout = { accountedAssets: 40, totalShares: 48, length: 56 } as const;
+const supplyPoolLayout = { accountedAssets: 40, totalShares: 48, length: lendingInterestLayouts.pool.legacySize } as const;
 const supplyPositionDiscriminator = [248, 221, 250, 222, 37, 167, 64, 209];
 const supplyPositionLayout = { supplier: 40, shares: 72, length: 80 } as const;
 /** 借款账户判别符来自 Anchor，偏移量对应链上 Rust 状态的序列化顺序。 Anchor borrow account discriminators and offsets follow the serialized Rust state. */
 const borrowMarketDiscriminator = [148, 133, 18, 242, 248, 66, 156, 99];
 const borrowMarketLayout = { totalDebt: 40, length: 48 } as const;
 const borrowPositionDiscriminator = [243, 140, 20, 139, 32, 243, 114, 55];
-const borrowPositionLayout = { borrower: 40, collateral: 72, debt: 80, length: 88 } as const;
+const borrowPositionLayout = { borrower: 40, collateral: 72, debt: 80, length: lendingInterestLayouts.position.legacySize } as const;
 const mockPriceDiscriminator = [21, 63, 245, 69, 219, 1, 9, 14];
 const mockPriceLayout = { price: 40, publishedAt: 48, length: 56 } as const;
 /** 借贷 PDA 的市场公钥占据判别符之后的 32 字节。 Lending PDAs store their market key in the 32 bytes after the discriminator. */
@@ -70,8 +71,10 @@ export interface DevnetLendingSupply extends DevnetLendingCash {
   accountedAssetsRaw: bigint;
   /** 借贷池总出借份额，单位为出借份额最小单位。 Total pool supply shares in share base units. */
   totalSharesRaw: bigint;
-  /** 池中未偿还的本金，按借款 Mint 最小单位计。 Outstanding principal recorded in debt mint base units. */
+  /** 同一观测的未偿债务（计息池包含已累计利息），按借款 Mint 最小单位计。 Same-observation debt, including accrued interest in an indexed pool, in debt mint base units. */
   totalDebtRaw: bigint;
+  /** 出借池是否启用链上计息。 Whether the on-chain supply pool has enabled interest. */
+  interestEnabled: boolean;
   /** 当前钱包持有的出借份额，未建仓时为零。 Supply shares of this wallet in base units, zero before the position exists. */
   sharesRaw: bigint;
   /** 当前钱包关联代币账户可用于出借的最小单位金额，缺失或被冻结时为零。 Spendable wallet ATA balance in mint base units, zero when missing or frozen. */
@@ -90,6 +93,10 @@ export interface LendingReadOptions {
   signal?: AbortSignal;
   /** 可以接受的最早观测 slot，通常来自已最终确认的交易。 Earliest acceptable observation slot, usually from a finalized transaction. */
   minContextSlot?: number;
+  /** 注册市场的测试 RPC 地址，省略时使用 Devnet。 Test RPC for the registered market, defaulting to Devnet. */
+  rpcUrl?: string;
+  /** 清算人公钥，用于附加读取同槽的付款和接收账户。 Liquidator public key for same-slot funding and receipt accounts. */
+  actorWalletAddress?: string | null;
 }
 
 /**
@@ -184,7 +191,7 @@ function validateMint(address: PublicKey, info: AccountInfo<Buffer> | null, deci
 async function readMarketAccounts(
   assets: RegisteredPoolAssets,
   lendingAccounts: PublicKey[],
-  { signal, minContextSlot = 0 }: LendingReadOptions,
+  { signal, minContextSlot = 0, rpcUrl = devnetRpcUrl }: LendingReadOptions,
 ) {
   /** 登记的 Mint 必须不同，且借款 Mint 精度符合初始化指令。 Registry mints must differ, with debt precision matching the initializer. */
   const debtMint = new PublicKey(assets.debtAsset.mint);
@@ -202,7 +209,7 @@ async function readMarketAccounts(
   /** 超时与调用方取消均终止底层 HTTP 请求。 Both timeout and caller cancellation abort the underlying HTTP request. */
   const timeout = AbortSignal.timeout(readTimeoutMs);
   const readSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const connection = new Connection(devnetRpcUrl, {
+  const connection = new Connection(rpcUrl, {
     commitment: 'finalized',
     disableRetryOnRateLimit: true,
     // 将读取的总取消信号传入 RPC 的底层 fetch。
@@ -286,16 +293,19 @@ function isUnallocated(info: AccountInfo<Buffer> | null): boolean {
  *
  * @param info 该借贷 PDA 的账户数据。 Account info for the lending PDA.
  * @param discriminator 该账户的 Anchor 判别符。 Anchor discriminator for the account type.
- * @param length 该账户的链上字节长度。 On-chain byte size of the account.
+ * @param length 该账户的旧布局字节长度。 Legacy on-chain byte size.
+ * @param activeLength 可选的计息布局字节长度。 Optional indexed on-chain byte size.
  * @returns 已验证的序列化数据，未建账时为空。 Validated serialized state, or null before creation.
  */
 function readLendingAccount(
   info: AccountInfo<Buffer> | null,
   discriminator: readonly number[],
   length: number,
+  activeLength?: number,
 ): Buffer | null {
   if (isUnallocated(info)) return null;
-  if (!info || info.executable || !info.owner.equals(programId) || info.data.length !== length ||
+  if (!info || info.executable || !info.owner.equals(programId) ||
+    (info.data.length !== length && info.data.length !== activeLength) ||
     !discriminator.every((byte, index) => info.data[index] === byte) ||
     !new PublicKey(info.data.subarray(lendingMarketField.start, lendingMarketField.end)).equals(marketAddress)) {
     throw new Error('A Devnet lending account has an invalid layout or market binding.');
@@ -304,32 +314,51 @@ function readLendingAccount(
 }
 
 /**
- * 验证现金、未偿本金与池账本的关系。直接转入的额外现金不构成新的记账资产。
- * Verify cash, outstanding principal, and supply accounting. Direct cash deposits are outside the ledger.
+ * 核验同槽 Clock 并读取可用于计息和价格时效的链上时间。
+ * Verify the same-slot Clock and read its on-chain time for interest and price freshness.
+ *
+ * @param clock 规范时钟系统账户在当前 RPC 观测中的数据。 Canonical Clock sysvar data from the current RPC observation.
+ */
+function readClock(clock: AccountInfo<Buffer> | null) {
+  if (!clock || clock.executable || !clock.owner.equals(sysvarProgramId) || clock.data.length !== clockLayout.length) {
+    throw new Error('The lending Clock sysvar has an invalid owner or layout.');
+  }
+  return clock.data.readBigInt64LE(clockLayout.unixTimestamp);
+}
+
+/**
+ * 验证现金、未偿债务与池账本的关系。直接转入的额外现金不构成新的记账资产。
+ * Verify cash, outstanding debt, and supply accounting. Direct cash deposits are outside the ledger.
  *
  * @param cashRaw 池的实际托管现金，按借款 Mint 最小单位。 Actual pool custody cash in debt mint base units.
  * @param poolInfo 同 slot 下池内出借账本 PDA。 Supply ledger PDA observed at the same slot.
  * @param borrowMarketInfo 同 slot 下全池借款记账 PDA。 Aggregate borrowing ledger PDA observed at the same slot.
+ * @param now 同一个 RPC 观测的链上 Unix 秒。 On-chain Unix second of the same RPC observation.
  */
 function readLendingAccounting(
   cashRaw: bigint,
   poolInfo: AccountInfo<Buffer> | null,
   borrowMarketInfo: AccountInfo<Buffer> | null,
+  now: bigint,
 ) {
-  /** 旧市场在第一笔借款前没有债务总账，未创建时按零处理。 Older markets have no debt ledger until the first loan, so absence means zero. */
-  const pool = readLendingAccount(poolInfo, supplyPoolDiscriminator, supplyPoolLayout.length);
+  /** 旧市场在第一笔借款前没有债务总账，未创建时按零处理。 A legacy market has no debt ledger until the first loan, so absence means zero. */
+  const pool = readLendingAccount(poolInfo, supplyPoolDiscriminator, supplyPoolLayout.length, lendingInterestLayouts.pool.size);
   const debtLedger = readLendingAccount(borrowMarketInfo, borrowMarketDiscriminator, borrowMarketLayout.length);
-  const accountedAssetsRaw = pool?.readBigUInt64LE(supplyPoolLayout.accountedAssets) ?? 0n;
+  const legacyAssetsRaw = pool?.readBigUInt64LE(supplyPoolLayout.accountedAssets) ?? 0n;
+  const legacyDebtRaw = debtLedger?.readBigUInt64LE(borrowMarketLayout.totalDebt) ?? 0n;
   const totalSharesRaw = pool?.readBigUInt64LE(supplyPoolLayout.totalShares) ?? 0n;
-  const totalDebtRaw = debtLedger?.readBigUInt64LE(borrowMarketLayout.totalDebt) ?? 0n;
+  /** 本金模式沿用账本余额。启用计息时以同槽时钟还原实际债务和资产。 Use ledger values for principal-only markets. Project current debt and assets from the same-slot clock when interest is active. */
+  const projection = projectLendingInterest(pool, legacyAssetsRaw, legacyDebtRaw, now);
+  const { accountedAssetsRaw, totalDebtRaw } = projection;
 
-  // 新增借款由本金和现金共同覆盖出借资产，账外入账仅增加现金。
-  // Cash and outstanding principal jointly back supplied assets. Unaccounted transfers increase only cash.
-  if ((accountedAssetsRaw === 0n) !== (totalSharesRaw === 0n) ||
+  // 现金和含息债务共同覆盖出借资产，账外入账只增加实际现金。坏账归零后仍可查看已有份额。
+  // Cash and indexed debt back supplied assets. Unaccounted transfers affect only physical cash. Shares stay visible after a complete loss.
+  if ((totalSharesRaw === 0n && accountedAssetsRaw !== 0n) ||
+      (totalDebtRaw !== 0n && debtLedger === null) ||
       totalDebtRaw > accountedAssetsRaw || accountedAssetsRaw > cashRaw + totalDebtRaw) {
-    throw new Error('The Devnet lending pool has invalid cash and debt accounting.');
+    throw new Error('The lending pool has invalid cash and debt accounting.');
   }
-  return { poolExists: pool !== null, accountedAssetsRaw, totalSharesRaw, totalDebtRaw };
+  return { poolExists: pool !== null, totalSharesRaw, ...projection };
 }
 
 /**
@@ -365,11 +394,12 @@ export async function readDevnetLendingSupply(
   const debtMint = new PublicKey(assets.debtAsset.mint);
   const walletAsset = getAssociatedTokenAddressSync(debtMint, supplier);
   const {
-    slot, cashRaw, extra: [poolInfo, debtLedgerInfo, positionInfo, assetInfo],
-  } = await readMarketAccounts(assets, [supplyPool, borrowMarket, supplyPosition, walletAsset], options);
+    slot, cashRaw, extra: [poolInfo, debtLedgerInfo, positionInfo, assetInfo, clock],
+  } = await readMarketAccounts(assets, [supplyPool, borrowMarket, supplyPosition, walletAsset, SYSVAR_CLOCK_PUBKEY], options);
 
-  /** 从链上 u64 字节直接解码，避免把份额和金额转换为浮点数。 Decode on-chain u64 bytes directly, without converting shares or amounts to floating-point values. */
-  const { poolExists, ...accounting } = readLendingAccounting(cashRaw, poolInfo, debtLedgerInfo);
+  /** 从程序字节直接解码，避免把份额和金额转换为浮点数。 Decode on-chain bytes directly, without converting shares or amounts to floating-point values. */
+  const { poolExists, interestStartedAt: _interestStartedAt, marketNormalizedShares: _marketShares, ...accounting } =
+    readLendingAccounting(cashRaw, poolInfo, debtLedgerInfo, readClock(clock));
   const position = readLendingAccount(positionInfo, supplyPositionDiscriminator, supplyPositionLayout.length);
   const sharesRaw = position?.readBigUInt64LE(supplyPositionLayout.shares) ?? 0n;
   if (position) {
@@ -411,22 +441,32 @@ export async function readDevnetBorrowAccounts(
   const collateralAta = getAssociatedTokenAddressSync(collateralMint, borrower);
   const debtAta = getAssociatedTokenAddressSync(debtMint, borrower);
 
-  /** 使用链上 Clock 判断价格时效，受同一个最终确认 slot 约束。 Use the on-chain Clock to judge price freshness at the same finalized slot. */
-  const { slot, cashRaw, extra: [pool, debtLedger, positionInfo, priceInfo, custodyInfo, collateralInfo, debtInfo, clock] } =
-    await readMarketAccounts(assets, [
-      supplyPool, borrowMarket, borrowPosition, mockCollateralPrice, collateralVault, collateralAta, debtAta, SYSVAR_CLOCK_PUBKEY,
-    ], options);
-  const { poolExists: _poolExists, ...accounting } = readLendingAccounting(cashRaw, pool, debtLedger);
-  const position = readLendingAccount(positionInfo, borrowPositionDiscriminator, borrowPositionLayout.length);
-  const price = readLendingAccount(priceInfo, mockPriceDiscriminator, mockPriceLayout.length);
-  if (!clock || clock.executable || !clock.owner.equals(sysvarProgramId) || clock.data.length !== clockLayout.length) {
-    throw new Error('The Devnet Clock sysvar has an invalid owner or layout.');
-  }
+  /** 清算预览在同一次读取中核对清算人的两类余额账户。 Read both liquidator token accounts in the same observation for liquidation quotes. */
+  const actor = options.actorWalletAddress ? new PublicKey(options.actorWalletAddress) : null;
+  const actorCollateralAta = actor ? getAssociatedTokenAddressSync(collateralMint, actor) : null;
+  const actorDebtAta = actor ? getAssociatedTokenAddressSync(debtMint, actor) : null;
+  const actorAccounts = actorCollateralAta && actorDebtAta ? [actorCollateralAta, actorDebtAta] : [];
 
-  /** 对照规范抵押托管余额和总贷款本金，检查个人仓位的一致性。 Check the wallet position against canonical collateral custody and aggregate debt. */
+  /** 链上 Clock、仓位、价格和双方 ATA 同时约束价格时效、债务额度与实际可支付金额。 Read the clock, position, price, and both parties' ATAs together to bound debt, price freshness, and spendable funds. */
+  const {
+    slot, cashRaw,
+    extra: [pool, debtLedger, positionInfo, priceInfo, custodyInfo, collateralInfo, debtInfo, clock, actorCollateralInfo, actorDebtInfo],
+  } = await readMarketAccounts(assets, [
+    supplyPool, borrowMarket, borrowPosition, mockCollateralPrice, collateralVault, collateralAta, debtAta,
+    SYSVAR_CLOCK_PUBKEY, ...actorAccounts,
+  ], options);
+  const chainUnixTimestamp = readClock(clock);
+  const { poolExists: _poolExists, interestStartedAt, marketNormalizedShares, ...accounting } =
+    readLendingAccounting(cashRaw, pool, debtLedger, chainUnixTimestamp);
+  const position = readLendingAccount(positionInfo, borrowPositionDiscriminator, borrowPositionLayout.length, lendingInterestLayouts.position.size);
+  const price = readLendingAccount(priceInfo, mockPriceDiscriminator, mockPriceLayout.length);
+
+  /** 对照规范抵押托管余额和全市场当前债务，检查个人仓位的一致性。 Check the wallet position against canonical collateral custody and current aggregate debt. */
   const custody = decodeTokenAccount(collateralVault, custodyInfo, collateralMint, marketAddress);
   const collateralRaw = position?.readBigUInt64LE(borrowPositionLayout.collateral) ?? 0n;
-  const debtRaw = position?.readBigUInt64LE(borrowPositionLayout.debt) ?? 0n;
+  const { debtRaw, debtShareQuote } = projectLendingPositionDebt(
+    position, position?.readBigUInt64LE(borrowPositionLayout.debt) ?? 0n, chainUnixTimestamp, interestStartedAt, marketNormalizedShares,
+  );
   if (custody.delegate || custody.closeAuthority || collateralRaw > custody.amount || debtRaw > accounting.totalDebtRaw ||
       (position && !new PublicKey(position.subarray(borrowPositionLayout.borrower, borrowPositionLayout.collateral)).equals(borrower))) {
     throw new Error('The Devnet borrowing position has invalid custody, owner, or debt.');
@@ -435,12 +475,19 @@ export async function readDevnetBorrowAccounts(
   /** ATA 缺失表示钱包尚无可用余额。冻结账户仍能安全查看仓位，转账时不能使用。 An absent ATA has no spendable balance. A frozen ATA still allows position viewing but cannot transfer. */
   const collateralAccount = isUnallocated(collateralInfo) ? null : decodeTokenAccount(collateralAta, collateralInfo, collateralMint, borrower);
   const debtAccount = isUnallocated(debtInfo) ? null : decodeTokenAccount(debtAta, debtInfo, debtMint, borrower);
+  /** 钱包尚未创建收款 ATA 时可以原子创建，被冻结时不可用于本笔清算。 An absent liquidation receipt ATA may be created atomically. A frozen one cannot receive this transaction. */
+  const actorCollateral = actor && actorCollateralAta && !isUnallocated(actorCollateralInfo)
+    ? decodeTokenAccount(actorCollateralAta, actorCollateralInfo, collateralMint, actor) : null;
+  const actorDebt = actor && actorDebtAta && !isUnallocated(actorDebtInfo)
+    ? decodeTokenAccount(actorDebtAta, actorDebtInfo, debtMint, actor) : null;
   return {
-    slot, cashRaw, ...accounting, positionExists: position !== null, collateralRaw, debtRaw,
+    slot, cashRaw, ...accounting, positionExists: position !== null, collateralRaw, debtRaw, debtShareQuote,
     collateralBalanceRaw: collateralAccount && !collateralAccount.isFrozen ? collateralAccount.amount : 0n,
     debtBalanceRaw: debtAccount && !debtAccount.isFrozen ? debtAccount.amount : 0n,
     priceRaw: price?.readBigUInt64LE(mockPriceLayout.price) ?? null,
     pricePublishedAt: price?.readBigInt64LE(mockPriceLayout.publishedAt) ?? null,
-    chainUnixTimestamp: clock.data.readBigInt64LE(clockLayout.unixTimestamp),
+    chainUnixTimestamp,
+    actorDebtBalanceRaw: actor ? actorDebt && !actorDebt.isFrozen ? actorDebt.amount : 0n : null,
+    actorCollateralAccountFrozen: actor ? actorCollateral?.isFrozen ?? false : null,
   };
 }

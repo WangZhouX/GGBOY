@@ -5,6 +5,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
 use crate::{
+    interest,
     state::{CASH_VAULT_SEED, MARKET_SEED, SUPPLY_POOL_SEED, SUPPLY_POSITION_SEED},
     LendingError, LendingMarket, SupplyPool, SupplyPosition,
 };
@@ -55,7 +56,7 @@ pub struct Supply<'info> {
     #[account(
         init_if_needed,
         payer = supplier,
-        space = SupplyPool::DISCRIMINATOR.len() + SupplyPool::INIT_SPACE,
+        space = interest::supply_pool_space(supply_pool.data_len()),
         seeds = [SUPPLY_POOL_SEED, market.key().as_ref()],
         bump,
     )]
@@ -139,7 +140,17 @@ pub(super) fn handle(context: Context<Supply>, assets_in: u64, min_shares_out: u
 
     // 报价读取池的已记账资产。直接转入的额外现金余额不会增加可发行份额的定价基数。
     // Quote from recorded assets. Extra cash sent directly to custody does not change the share pricing base.
-    let accounted_assets = context.accounts.supply_pool.accounted_assets_raw;
+    let pool_info = context.accounts.supply_pool.to_account_info();
+    let mut indexed = interest::read_pool(&pool_info)?;
+    let accounted_assets = if let Some(pool) = indexed {
+        require!(
+            pool.cash <= context.accounts.cash_vault.amount,
+            LendingError::InvalidSupplyAccounting
+        );
+        pool.project(Clock::get()?.unix_timestamp)?.assets
+    } else {
+        context.accounts.supply_pool.accounted_assets_raw
+    };
     let total_shares = context.accounts.supply_pool.total_shares_raw;
     let position_shares = context.accounts.supply_position.shares_raw;
     // 记账资产仍包括未偿本金。资金池的现金流出由借款指令校验总账和流动性。
@@ -165,6 +176,14 @@ pub(super) fn handle(context: Context<Supply>, assets_in: u64, min_shares_out: u
     let new_accounted_assets = accounted_assets
         .checked_add(assets_in)
         .ok_or(LendingError::SupplyOverflow)?;
+    // 新供应只增加已登记现金，不改变归一化债务。
+    // Supply adds recorded cash without changing normalized debt.
+    if let Some(pool) = indexed.as_mut() {
+        pool.cash = pool
+            .cash
+            .checked_add(assets_in)
+            .ok_or(LendingError::SupplyOverflow)?;
+    }
     let new_total_shares = total_shares
         .checked_add(shares_out)
         .ok_or(LendingError::SupplyOverflow)?;
@@ -192,6 +211,9 @@ pub(super) fn handle(context: Context<Supply>, assets_in: u64, min_shares_out: u
     // Canonical seeds already bind both PDAs to their market and wallet. Repeat supply adds to existing shares.
     let market = context.accounts.market.key();
     let supplier = context.accounts.supplier.key();
+    if let Some(pool) = indexed {
+        interest::store_pool(&pool_info, pool)?;
+    }
     context.accounts.supply_pool.set_inner(SupplyPool {
         market,
         accounted_assets_raw: new_accounted_assets,

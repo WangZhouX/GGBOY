@@ -1,10 +1,10 @@
-//! 纯现金金库的存入账户约束、份额计算和代币结算。
-//! Account constraints, share pricing, and token settlement for cash-only vault deposits.
+//! 金库的存入账户约束、份额计算和代币结算。
+//! Account constraints, share pricing, and token settlement for vault deposits.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, TransferChecked};
 
-use crate::{state::VAULT_SEED, Vault, VaultError};
+use crate::{state::VAULT_SEED, strategy_valuation::vault_valuation, Vault, VaultError};
 
 /// 存入所需的金库账户和投资者账户，全部代币账户使用经典 SPL Token。
 /// Vault and investor accounts for a deposit. All token accounts use classic SPL Token.
@@ -29,8 +29,8 @@ pub struct Deposit<'info> {
     /// Configured mockUSDC mint supplying the bound address and decimals for the transfer.
     pub asset_mint: Account<'info, Mint>,
 
-    /// 金库控制的结算资产账户，存入前余额用于报价，存入后接收资金。
-    /// Vault-controlled settlement account whose pre-deposit balance prices the new shares and receives the funds.
+    /// 金库控制的结算资产账户，存入前余额计入净值，存入后接收资金。
+    /// Vault-controlled settlement account whose pre-deposit balance contributes to NAV and receives the funds.
     #[account(mut, token::mint = asset_mint, token::authority = vault)]
     pub cash_vault: Account<'info, TokenAccount>,
 
@@ -99,13 +99,14 @@ pub(super) fn handle(context: Context<Deposit>, assets_in: u64, min_shares_out: 
         assets_in,
         VaultError::InsufficientDepositBalance
     );
-    // 以存入前的现金和 Mint 供给量计算实际 GG-V 最小单位数。
-    // Price the actual GG-V base units from pre-deposit cash and mint supply.
-    let shares_out = calculate_shares(
-        assets_in,
+    // 存入前的净值与 Mint 供给量决定实际 GG-V 报价。策略配置已激活时需要完整报价账户。
+    // Pre-deposit NAV and mint supply determine the GG-V quote. An active strategy requires every valuation account.
+    let valuation = vault_valuation(
+        &accounts.vault,
         accounts.cash_vault.amount,
-        accounts.share_mint.supply,
+        context.remaining_accounts,
     )?;
+    let shares_out = calculate_shares(assets_in, valuation.nav, accounts.share_mint.supply)?;
     require_gt!(shares_out, 0, VaultError::ZeroSharesOut);
     require_gte!(
         shares_out,
@@ -159,15 +160,15 @@ pub(super) fn handle(context: Context<Deposit>, assets_in: u64, min_shares_out: 
     Ok(())
 }
 
-/// 以纯现金金库的存入前状态计算待铸造份额，输出向下取整。
-/// Calculate shares from the cash-only vault's prior balances, rounding down.
+/// 以金库存入前的净值计算待铸造份额，输出向下取整。
+/// Calculate shares from the vault's pre-deposit NAV, rounding down.
 ///
-/// `assets_in` 和 `cash_before` 为 mockUSDC 最小单位数，`supply_before` 和结果为 GG-V 最小单位数。
-/// `assets_in` and `cash_before` use mockUSDC base units. `supply_before` and the result use GG-V base units.
+/// `assets_in` 和 `nav_before` 为 mockUSDC 最小单位数，`supply_before` 和结果为 GG-V 最小单位数。
+/// `assets_in` and `nav_before` use mockUSDC base units. `supply_before` and the result use GG-V base units.
 /// 单边为零或结果超出 SPL Token 数量范围时返回业务错误。
 /// Return a business error when only one balance is zero or the result exceeds the SPL Token amount range.
-fn calculate_shares(assets_in: u64, cash_before: u64, supply_before: u64) -> Result<u64> {
-    match (cash_before, supply_before) {
+fn calculate_shares(assets_in: u64, nav_before: u64, supply_before: u64) -> Result<u64> {
+    match (nav_before, supply_before) {
         // 两种代币均为六位小数，空金库可直接按最小单位 1:1 铸造。
         // Both tokens have six decimals, so an empty vault issues shares 1:1 in base units.
         (0, 0) => Ok(assets_in),
@@ -178,7 +179,7 @@ fn calculate_shares(assets_in: u64, cash_before: u64, supply_before: u64) -> Res
             // 两个 u64 的乘积可完整放入 u128。整数除法保留向下取整。
             // The product of two u64 values fits in u128. Integer division rounds down.
             let numerator = u128::from(assets_in) * u128::from(supply_before);
-            u64::try_from(numerator / u128::from(cash_before))
+            u64::try_from(numerator / u128::from(nav_before))
                 .map_err(|_| error!(VaultError::DepositSharesOverflow))
         }
     }

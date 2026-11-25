@@ -88,6 +88,15 @@ public class ActivityController {
      * and asset movements. It sends {@code subjectAddress}, {@code wallet}, both event types, and {@code limit=4}.
      * The view refreshes on wallet, vault, or network changes or transaction confirmation, then briefly polls if indexing lags.
      *
+     * <p>策略管理页（{@code /strategy}，原型 {@code #strategy}）的「最近策略交易」在取得当前网络的选中金库后，
+     * 按 {@code category=strategy} 和金库 PDA 的 {@code subjectAddress} 读取首屏，无需连接钱包。
+     * 切换网络或金库、刷新页面或管理操作确认后重查。列表展示兑换、出借和收回的实际成交金额及回执入口。
+     * Recent Strategy Transactions on Strategy Management ({@code /strategy}, prototype {@code #strategy})
+     * loads the first page once a vault is selected on the current network. It uses {@code category=strategy}
+     * and the vault PDA as {@code subjectAddress}, without a wallet connection.
+     * Refetches on network or vault changes, refresh, and strategy transaction confirmation.
+     * The list shows executed amounts and receipt links for swaps, allocations and recalls.
+     *
      * @param parameters 查询参数。必填 {@code network}。可选 {@code wallet}、{@code subjectAddress}、
      *        {@code signature}、{@code category}、可重复的 {@code type}、默认 20 的 {@code limit} 和首屏省略的 {@code cursor}。
      *        Query parameters. Required {@code network}, optional {@code wallet}, {@code subjectAddress},
@@ -99,8 +108,8 @@ public class ActivityController {
      */
     @Operation(
             summary = "查询交易活动",
-            description = "按网络和筛选条件分页查询已索引的链上事件，支持金库存赎、借款操作和出借资金提取。 "
-                    + "Pages through indexed on-chain events, including vault deposits and redemptions, borrowing actions, and supply withdrawals."
+            description = "按网络和筛选条件分页查询已索引的链上事件，支持金库存赎、策略兑换、金库出借和收回、借款操作和出借资金提取。 "
+                    + "Pages indexed on-chain events including vault deposits, redemptions, strategy swaps, vault allocations and recalls, borrowing actions, and supply withdrawals."
     )
     @Parameters({
             @Parameter(name = "network", in = ParameterIn.QUERY, required = true,
@@ -173,16 +182,18 @@ public class ActivityController {
      * <p>「交易活动」页（{@code /activity}，原型 {@code #activity}）的「活动记录」中点击「查看回执」
      * 或直接打开回执路径 {@code /activity/{signature}/events/{eventIndex}} 时调用。使用记录的
      * {@code network}、{@code signature} 和 {@code eventIndex}，无需连接钱包。
-     * 回执使用交易 slot、区块时间、完整的参与方角色和资产变动展示该事件的结果。策略金库的
-     * 「最近金库交易」计划复用该回执路径。
+     * 回执使用交易 slot、区块时间、完整的参与方角色和资产变动展示该事件的结果。
+     * 策略金库的「最近金库交易」和策略管理的「最近策略交易」复用该回执。
      * Activity Records on Transaction Activity ({@code /activity}, prototype {@code #activity}) calls this
      * endpoint when View Receipt is selected or the receipt route is opened directly. Use the record's
      * {@code network}, {@code signature}, and {@code eventIndex}. A wallet connection is unnecessary.
      * The receipt shows the transaction slot, block time, all participant roles, and asset movements.
-     * Recent Vault Transactions will reuse the receipt route.
+     * Recent Vault Transactions and Recent Strategy Transactions reuse the same receipt route.
      *
      * <p>「借贷」活动中的出借提取回执展示出借人及资金池实际支付的代币金额、Mint 和精度。
      * A supply withdrawal receipt under Lending shows the supplier and the actual payout amount, token mint, and decimals.
+     * 策略回执展示管理者、金库和实际换入换出或资金划转金额。
+     * A strategy receipt shows the manager, vault and executed swap or allocation amounts.
      *
      * @param signature Base58 编码的 64 字节 Solana 交易主签名。 Base58-encoded 64-byte Solana primary transaction signature.
      * @param eventIndex 交易内从零开始的十进制事件序号，范围 0 至 2147483647。 Zero-based decimal event index from 0 through 2147483647.

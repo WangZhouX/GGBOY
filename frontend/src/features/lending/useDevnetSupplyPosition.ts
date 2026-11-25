@@ -52,6 +52,9 @@ export function useDevnetSupplyPosition(market: LendingMarketListItem | undefine
           minContextSlot: queryClient.getQueryData<DevnetLendingSupply>(queryKey)?.slot,
         })
       : skipToken,
+    // 固定利息每个整分钟计入份额估值，页面保持打开时定期重读链上时钟。
+    // Fixed interest enters share value in complete minutes. Refresh the chain clock while the page remains open.
+    refetchInterval: ({ state }) => state.data?.interestEnabled ? 30_000 : false,
   });
 }
 

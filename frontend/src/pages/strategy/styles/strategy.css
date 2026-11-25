@@ -1,0 +1,241 @@
+/* 桌面把金库账户、操作和活动放在各自区域，窄屏依次排列。 */
+/* Keep account figures, operations, and activity in separate areas, stacked on narrow screens. */
+.strategy-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 1.25rem;
+}
+
+.strategy-history {
+  grid-column: 1 / -1;
+}
+
+.strategy-panel {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.55rem);
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface);
+}
+
+.strategy-panel__header,
+.strategy-controls,
+.strategy-account__identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+}
+
+.strategy-panel__header {
+  justify-content: space-between;
+}
+
+.strategy-panel h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.strategy-note,
+.strategy-action-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.strategy-note--error {
+  color: #ffc3b8;
+}
+
+.strategy-account__identity code,
+.strategy-signature {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.strategy-figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  gap: 0;
+}
+
+.strategy-figures > div {
+  min-width: 0;
+  padding: 0.72rem 0.55rem 0.72rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.strategy-figures dt,
+.strategy-config dt {
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.strategy-figures dd,
+.strategy-config dd {
+  min-width: 0;
+  margin: 0.45rem 0 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  font-weight: 640;
+}
+
+.strategy-config {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: baseline;
+  gap: 0.65rem 0.8rem;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+}
+
+.strategy-config dd {
+  margin: 0;
+}
+
+.strategy-action-list {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.strategy-action-list li {
+  display: grid;
+  justify-items: start;
+  gap: 0.55rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+}
+
+.strategy-action-list h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 680;
+}
+
+/* 控件共用点击区域、清楚的焦点与启用提示。 */
+/* Controls share hit areas, visible focus, and an enabled affordance. */
+.strategy-button,
+.strategy-field input,
+.strategy-field select {
+  min-height: 2.55rem;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  padding: 0.45rem 0.8rem;
+  color: inherit;
+  font: inherit;
+}
+
+.strategy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.strategy-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.strategy-button:focus-visible,
+.strategy-field :is(input, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0.15rem;
+}
+
+.strategy-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.strategy-button--primary {
+  background: var(--accent);
+  color: #0c2118;
+  border-color: var(--accent);
+}
+
+.strategy-operation {
+  display: grid;
+  justify-items: start;
+  gap: 1rem;
+  width: min(100%, 43rem);
+}
+
+.strategy-operation > .strategy-panel {
+  width: 100%;
+}
+
+.strategy-form {
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+  gap: 0.95rem;
+}
+
+.strategy-form > dl {
+  width: 100%;
+}
+
+.strategy-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.strategy-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.strategy-field :is(input, select) {
+  color: #edf6f1;
+  width: 100%;
+}
+
+.strategy-input-row .strategy-field {
+  flex: 1 1 14rem;
+}
+
+@media (max-width: 850px) {
+  .strategy-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 435px) {
+  .strategy-controls,
+  .strategy-config {
+    gap: 0.55rem;
+  }
+
+  .strategy-config {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .strategy-config dd {
+    margin-bottom: 0.2rem;
+  }
+}

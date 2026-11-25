@@ -1,30 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
 import { Outlet, useOutletContext, useSearchParams } from 'react-router';
-import { listVaults, type VaultListItem } from '../../features/vault/api/listVaults';
+import { listVaults } from '../../features/vault/api/listVaults';
+import { devnetVaultQueryPrefix, devnetVaultStateKey, isSupportedDevnetVault } from '../../features/vault/devnetVaultQueryKeys';
 import { useNetwork } from '../../shared/navigation/network';
 import { usePhantomWallet } from '../../solana/phantomWallet';
-import { devnetVaultConfig, readDevnetVault } from '../../solana/vault/devnetVault';
-
-/** 金库页和存赎页共用的 Devnet 读链前缀。 Devnet read prefix shared by vault details and transaction routes. */
-const devnetVaultQueryKey = ['devnet-vault-state'] as const;
-
-/**
- * 检查所选金库是否匹配可签名的 Devnet 现金金库部署。
- * Check whether a registry entry matches the supported Devnet deployment for transactions.
- *
- * @param vault 已登记的金库。 Registered vault to validate.
- * @returns 网络、程序、金库、Mint、精度和资金配置全部匹配时为 true。 True when network, program, vault, mints, decimals and allocation match.
- */
-function isDevnetCashVault(vault: VaultListItem) {
-  return vault.network === 'devnet' &&
-    vault.address === devnetVaultConfig.vaultAddress.toBase58() &&
-    vault.programId === devnetVaultConfig.programId.toBase58() &&
-    vault.quoteAsset.mint === devnetVaultConfig.assetMint.toBase58() &&
-    vault.shareAsset.mint === devnetVaultConfig.shareMint.toBase58() &&
-    vault.quoteAsset.decimals === 6 && vault.shareAsset.decimals === 6 &&
-    vault.strategyAsset === null && vault.lendingMarketAddress === null;
-}
+import { readDevnetVault } from '../../solana/vault/devnetVault';
 
 /**
  * 保存同一组金库路由共享的选择、读链和确认后刷新规则。
@@ -53,22 +34,22 @@ function useVaultRouteState() {
   const selectedVault = requestedVault ?? vaults?.[0];
   /** 存赎深链接必须得到原本指定的金库，避免向回退金库提交。 A transaction deep link must target its specified vault rather than the overview's fallback. */
   const unsupportedSelection = selectedAddress !== null && !requestedVault;
-  /** 仅为已验证的所选现金金库读取实时状态。 Read current state only for a supported, verified cash vault. */
-  const cashVault = selectedVault && isDevnetCashVault(selectedVault) ? selectedVault : undefined;
+  /** 仅为已验证的所选金库读取实时状态。 Read current state only for a supported, verified vault. */
+  const supportedVault = selectedVault && isSupportedDevnetVault(selectedVault) ? selectedVault : undefined;
   const chain = useQuery({
-    queryKey: [...devnetVaultQueryKey, cashVault?.address, walletAddress],
-    enabled: cashVault !== undefined,
+    queryKey: devnetVaultStateKey(supportedVault?.address, walletAddress),
+    enabled: supportedVault !== undefined,
     queryFn: ({ signal }) => readDevnetVault(walletAddress, minReadSlot.current, signal),
     refetchInterval: 30_000,
   });
 
   /**
-   * 刷新已登记金库和当前现金金库的链上读数。
-   * Refresh registered vaults and the selected cash vault's chain state.
+   * 刷新已登记金库和当前链上金库的链上读数。
+   * Refresh registered vaults and the selected vault's chain state.
    */
   function refreshOverview() {
     void catalog.refetch();
-    if (cashVault) void chain.refetch();
+    if (supportedVault) void chain.refetch();
   }
 
   /**
@@ -79,9 +60,9 @@ function useVaultRouteState() {
    */
   async function refreshAfterTransaction(slot: number) {
     minReadSlot.current = Math.max(minReadSlot.current ?? 0, slot);
-    await queryClient.cancelQueries({ queryKey: devnetVaultQueryKey });
+    await queryClient.cancelQueries({ queryKey: devnetVaultQueryPrefix });
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: devnetVaultQueryKey }, { throwOnError: true }),
+      queryClient.invalidateQueries({ queryKey: devnetVaultQueryPrefix }, { throwOnError: true }),
       queryClient.invalidateQueries({ queryKey: ['sol-balance', 'devnet'] }),
     ]);
   }
@@ -97,7 +78,7 @@ function useVaultRouteState() {
   }
 
   return {
-    network, walletAddress, vaults, selectedVault, cashVault, unsupportedSelection, catalog, chain,
+    network, walletAddress, vaults, selectedVault, supportedVault, unsupportedSelection, catalog, chain,
     refreshOverview, refreshAfterTransaction, selectVault,
   };
 }

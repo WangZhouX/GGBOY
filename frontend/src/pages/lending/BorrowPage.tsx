@@ -7,6 +7,7 @@ import { useLendingPosition } from '../../features/lending/useLendingPosition';
 import { formatTokenAmount } from '../../shared/formatTokenAmount';
 import { paths } from '../../shared/navigation/paths';
 import type { DevnetBorrowPosition } from '../../solana/lending/borrowLendingPosition';
+import { lendingFixedAprBps } from '../../solana/lending/lendingInterest';
 import { PageLayout } from '../../shared/ui/PageLayout';
 import { BorrowLimitGuidance } from './BorrowLimitGuidance';
 import { LendingBorrowActivitySection } from './LendingBorrowActivitySection';
@@ -106,6 +107,7 @@ function LiveBorrowRisk({ observation, market }: { observation: DevnetBorrowPosi
       <LendingPositionMetrics rows={[
         { label: t('lendingPosition.collateralPrice'), value: priceStatus !== 'fresh' || observation.priceRaw === null ? unavailable : formatTokenAmount(observation.priceRaw, market.debtAsset.decimals, locale) + ' ' + priceUnit },
         { label: t('lendingPosition.borrowLtv'), value: formatTokenAmount(observation.borrowLtvBps, 2, locale) + '%' },
+        ...(observation.interestEnabled ? [{ label: t('lendingBorrow.fixedApr'), value: formatTokenAmount(lendingFixedAprBps, 2, locale) + '%' }] : []),
         { label: t('lendingPosition.liquidationThreshold'), value: formatTokenAmount(observation.liquidationLtvBps, 2, locale) + '%' },
         { label: t('lendingPosition.currentLtv'), value: observation.currentLtvBps === null ? unavailable : formatTokenAmount(observation.currentLtvBps, 2, locale) + '%' },
         { label: t('lendingPosition.liquidationPrice'), value: observation.liquidationPriceRaw === null ? unavailable : formatTokenAmount(observation.liquidationPriceRaw, market.debtAsset.decimals, locale) + ' ' + priceUnit },

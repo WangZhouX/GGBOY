@@ -5,6 +5,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
 use crate::{
+    interest,
     oracle::require_fresh_price,
     risk::collateral_borrow_capacity,
     state::{BORROW_POSITION_SEED, COLLATERAL_VAULT_SEED, MARKET_SEED, MOCK_COLLATERAL_PRICE_SEED},
@@ -62,7 +63,7 @@ pub struct DepositCollateral<'info> {
     #[account(
         init_if_needed,
         payer = borrower,
-        space = BorrowPosition::DISCRIMINATOR.len() + BorrowPosition::INIT_SPACE,
+        space = interest::borrow_position_space(borrow_position.data_len()),
         seeds = [BORROW_POSITION_SEED, market.key().as_ref(), borrower.key().as_ref()],
         bump,
     )]
@@ -199,6 +200,11 @@ pub(super) fn deposit(context: Context<DepositCollateral>, amount_raw: u64) -> R
     position.market = market;
     position.borrower = borrower;
     position.collateral_raw = collateral_after;
+    let current_debt = interest::project_position_debt(
+        &position.to_account_info(),
+        position.debt_raw,
+        Clock::get()?.unix_timestamp,
+    )?;
 
     emit!(LendingBorrowAction {
         market,
@@ -206,7 +212,7 @@ pub(super) fn deposit(context: Context<DepositCollateral>, amount_raw: u64) -> R
         kind: 0, // 事件类型 0 表示存入抵押品。 Event kind 0 is a collateral deposit.
         amount_raw,
         collateral_raw: collateral_after,
-        debt_raw: position.debt_raw,
+        debt_raw: current_debt,
     });
     Ok(())
 }
@@ -236,7 +242,10 @@ pub(super) fn withdraw(context: Context<WithdrawCollateral>, amount_raw: u64) ->
         LendingError::InsufficientBorrowTokenBalance
     );
 
-    if position.debt_raw != 0 {
+    let now = Clock::get()?.unix_timestamp;
+    let current_debt =
+        interest::project_position_debt(&position.to_account_info(), position.debt_raw, now)?;
+    if current_debt != 0 {
         // 规范账户可尚未初始化。仅有债务时要求它内有由本程序管理的 Anchor 价格状态。
         // The canonical account may still be uninitialized. With debt outstanding, require an Anchor price state owned by this program.
         let price_info = accounts.mock_collateral_price.to_account_info();
@@ -247,14 +256,14 @@ pub(super) fn withdraw(context: Context<WithdrawCollateral>, amount_raw: u64) ->
 
         // 用取回后的余额按同一借款 LTV 向下取整债务上限，确保至少留下所需抵押量。
         // Floor the debt limit from the remaining collateral at the borrowing LTV, ensuring the required collateral stays locked.
-        let price_raw = require_fresh_price(&price_account, market, Clock::get()?.unix_timestamp)?;
+        let price_raw = require_fresh_price(&price_account, market, now)?;
         let remaining_capacity = collateral_borrow_capacity(
             collateral_after,
             accounts.collateral_mint.decimals,
             price_raw,
         )?;
         require!(
-            remaining_capacity >= u128::from(position.debt_raw),
+            remaining_capacity >= u128::from(current_debt),
             LendingError::CollateralTooLow
         );
     }
@@ -286,7 +295,7 @@ pub(super) fn withdraw(context: Context<WithdrawCollateral>, amount_raw: u64) ->
         kind: 3, // 事件类型 3 表示取回抵押品。 Event kind 3 is a collateral withdrawal.
         amount_raw,
         collateral_raw: collateral_after,
-        debt_raw: position.debt_raw,
+        debt_raw: current_debt,
     });
     Ok(())
 }

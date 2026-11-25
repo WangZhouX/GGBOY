@@ -2,7 +2,7 @@
 
 使用 JDK 25、Spring Boot 4.1.2、Spring Web MVC、Maven、PostgreSQL、MyBatis-Plus 3.5.18 和 Flyway。
 
-后端通过 Solana JSON-RPC 定时同步 Devnet 金库存赎，以及借贷市场的抵押、借款、还款和取回抵押品，支持去重和断线补扫。Spring Web 提供历史记录、净值快照和仓位查询接口。PostgreSQL 保存索引结果和同步游标，MyBatis-Plus 负责持久化访问，Flyway 管理数据库迁移。
+后端通过 Solana JSON-RPC 定时同步 Devnet 金库存赎，以及借贷市场的抵押、借款、还款、取回抵押品及普通钱包出借存取，支持去重和断线补扫。Spring Web 提供历史记录、净值快照和仓位查询接口。PostgreSQL 保存索引结果和同步游标，MyBatis-Plus 负责持久化访问，Flyway 管理数据库迁移。
 
 ## 工程结构
 
@@ -65,7 +65,7 @@ curl --fail http://localhost:8080/actuator/health
 
 ## Devnet 借款交易同步
 
-[Devnet 借贷市场登记 SQL](../docs/backend/register-devnet-lending-market.sql) 为已部署市场登记程序与两种 Mint。已有登记可直接启动同步。任务按借贷程序分批回填节点可提供的最终确认历史，使用独立于金库的程序检查点。前端选择 Devnet，在「交易活动」切换到「借贷」，可按借款钱包过滤并打开回执。
+[Devnet 借贷市场登记 SQL](../docs/backend/register-devnet-lending-market.sql) 为已部署市场登记程序与两种 Mint。已有登记可直接启动同步。任务按借贷程序分批回填节点可提供的最终确认历史，使用独立于金库的程序检查点。前端选择 Devnet，在「交易活动」切换到「借贷」，可按借款人或出借人钱包过滤并打开回执。
 
 | 环境变量 | 用途 | 默认值 |
 | --- | --- | --- |
@@ -74,6 +74,17 @@ curl --fail http://localhost:8080/actuator/health
 | GGBOY_DEVNET_LENDING_POLL_INTERVAL | 每轮结束后的等待时间 | 20s |
 
 借贷与金库共用上述只读 RPC 配置。首次回填时活动会随批次逐步出现。可使用 `GET /api/v1/activities?network=devnet&category=lending` 查看结果。后续新增市场登记如需回填旧交易，应针对相应程序重新扫描已有检查点之前的历史。见[索引实现](ggboy-app/src/main/java/io/ggboy/backend/indexer/README.md#借款活动)。
+
+## Devnet 借贷市场与清算风险同步
+
+同步任务读取已登记市场、托管与 Mint、Oracle PDA 和全部借款及出借账本。相同最终确认 slot 的仓位按链上 Clock 计算债务、出借份额价值和健康度，原子写入现有市场与钱包快照表。登记同时缺少 Oracle 地址和有效期时，采集器填入已验证市场使用的规范测试价格 PDA 和 7 天有效期。报价缺失、超期或发布历史无法核实时，资金池和仓位余额仍可查询，清算市场返回空列表及价格不可用状态。
+
+| 环境变量 | 用途 | 默认值 |
+| --- | --- | --- |
+| GGBOY_DEVNET_LENDING_SNAPSHOT_ENABLED | 是否采集市场与钱包风险快照 | true |
+| GGBOY_DEVNET_LENDING_SNAPSHOT_POLL_INTERVAL | 一轮结束后再次采集的延迟 | 20s |
+
+任务复用借贷程序 ID 和只读 Devnet RPC 配置。需要节点支持带上下文的 `getProgramAccounts`、`getMultipleAccounts` 和历史交易查询。样本跨 slot 时同轮重读，失败时保留上次已提交的观测。字段及候选查询详见[借贷市场接口设计](../docs/backend/lending-api-design.md#清算市场)。
 
 ## Devnet 每份净值走势
 

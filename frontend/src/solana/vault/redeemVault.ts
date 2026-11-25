@@ -37,6 +37,8 @@ export interface PrepareVaultRedeemRequest {
   minAssetsRaw: bigint;
   /** 钱包和金库读数使用的已确认 RPC slot。 Confirmed RPC slot of the wallet and vault observation. */
   minContextSlot: number;
+  /** 策略启用时从同一报价 slot 取得的只读估值账户。 Read-only valuation accounts from the quote slot when strategy is enabled. */
+  pricingAccounts: readonly PublicKey[];
   /** 来自同一次读取、未冻结的 GG-V 来源账户。 Unfrozen GG-V source accounts from the same read. */
   shareAccounts: readonly RedeemShareAccount[];
 }
@@ -113,6 +115,7 @@ export async function prepareVaultRedeem(request: PrepareVaultRedeemRequest): Pr
       amountRaw: request.sharesRaw,
       minOutputRaw: request.minAssetsRaw,
       minContextSlot: request.minContextSlot,
+      pricingAccounts: request.pricingAccounts,
       setup: [
         createAssociatedTokenAccountIdempotentInstruction(investor, investorAsset, investor, assetMint),
         ...source.transfers,

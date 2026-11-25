@@ -14,24 +14,36 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 从成功且最终确认的借贷交易提取 Anchor 借款和提取出借资金事件。
- * Extracts Anchor borrowing and supply withdrawal events from finalized successful lending transactions.
+ * 从成功且最终确认的借贷交易提取 Anchor 借款、出借存取和清算事件。
+ * Extracts Anchor borrowing, supply, withdrawal and liquidation events from finalized successful lending transactions.
  */
 final class LendingActivityDecoder {
 
     /** 借贷程序 IDL 中 LendingBorrowAction 事件的八字节标识。 Eight-byte LendingBorrowAction discriminator in the lending program IDL. */
     private static final byte[] BORROW_ACTION_DISCRIMINATOR = HexFormat.of().parseHex("6de49f44dcdf88da");
+    /** 借贷程序 IDL 中 LendingSupply 事件的八字节标识。 Eight-byte LendingSupply discriminator in the lending program IDL. */
+    private static final byte[] SUPPLY_DEPOSIT_DISCRIMINATOR = HexFormat.of().parseHex("85a557c52c344682");
     /** 借贷程序 IDL 中 LendingSupplyWithdrawal 事件的八字节标识。 Eight-byte LendingSupplyWithdrawal discriminator in the lending program IDL. */
     private static final byte[] SUPPLY_WITHDRAWAL_DISCRIMINATOR = HexFormat.of().parseHex("dc547c71ab01e519");
+    /** 借贷程序 IDL 中 LendingLiquidation 事件的八字节标识。 Eight-byte LendingLiquidation discriminator in the lending program IDL. */
+    private static final byte[] LIQUIDATION_DISCRIMINATOR = HexFormat.of().parseHex("7118b671721ebfc3");
     /** Solana 公钥的原始字节数。 Raw byte length of a Solana public key. */
     private static final int PUBLIC_KEY_BYTES = 32;
     /** 固定 Borsh 布局包含标识、两个公钥、一个操作编号和三个 u64。 Fixed Borsh layout containing the discriminator, two keys, one action code, and three u64 values. */
     private static final int BORROW_ACTION_BYTES =
             BORROW_ACTION_DISCRIMINATOR.length + 2 * PUBLIC_KEY_BYTES + Byte.BYTES + 3 * Long.BYTES;
 
+    /** 出借存入的 Borsh 布局含标识、三个公钥和两个 u64。 Deposit Borsh layout with a discriminator, three keys, and two u64 values. */
+    private static final int SUPPLY_DEPOSIT_BYTES =
+            SUPPLY_DEPOSIT_DISCRIMINATOR.length + 3 * PUBLIC_KEY_BYTES + 2 * Long.BYTES;
+
     /** 提取事件的 Borsh 布局包含标识、三个公钥和三个 u64。 Withdrawal Borsh layout containing the discriminator, three keys, and three u64 values. */
     private static final int SUPPLY_WITHDRAWAL_BYTES =
             SUPPLY_WITHDRAWAL_DISCRIMINATOR.length + 3 * PUBLIC_KEY_BYTES + 3 * Long.BYTES;
+
+    /** 清算事件含标识、五个公钥和三个 u64 最小单位数量。 Liquidation layout has a discriminator, five keys, and three u64 base-unit quantities. */
+    private static final int LIQUIDATION_BYTES =
+            LIQUIDATION_DISCRIMINATOR.length + 5 * PUBLIC_KEY_BYTES + 3 * Long.BYTES;
 
     /** 解码器仅提供静态方法。 The decoder exposes only static methods. */
     private LendingActivityDecoder() {
@@ -83,19 +95,39 @@ final class LendingActivityDecoder {
         }
 
         /** 识别支持的标识和对应布局长度，忽略其余程序数据。 Resolve accepted discriminators and layout lengths, ignoring other program data. */
-        boolean borrowing = hasDiscriminator(data, BORROW_ACTION_DISCRIMINATOR);
-        boolean supplyWithdrawal = hasDiscriminator(data, SUPPLY_WITHDRAWAL_DISCRIMINATOR);
-        if (!borrowing && !supplyWithdrawal) {
-            return null;
+        if (hasDiscriminator(data, BORROW_ACTION_DISCRIMINATOR)) {
+            return readBorrowAction(raw.logIndex(), readBody(raw, data, separator, BORROW_ACTION_BYTES), signers);
         }
-        if (separator >= 0 || data.length != (borrowing ? BORROW_ACTION_BYTES : SUPPLY_WITHDRAWAL_BYTES)) {
+        if (hasDiscriminator(data, SUPPLY_DEPOSIT_DISCRIMINATOR)) {
+            return readSupplyDeposit(raw.logIndex(), readBody(raw, data, separator, SUPPLY_DEPOSIT_BYTES), signers);
+        }
+        if (hasDiscriminator(data, SUPPLY_WITHDRAWAL_DISCRIMINATOR)) {
+            return readSupplyWithdrawal(raw.logIndex(), readBody(raw, data, separator, SUPPLY_WITHDRAWAL_BYTES), signers);
+        }
+        if (hasDiscriminator(data, LIQUIDATION_DISCRIMINATOR)) {
+            return readLiquidation(raw.logIndex(), readBody(raw, data, separator, LIQUIDATION_BYTES), signers);
+        }
+        return null;
+    }
+
+    /**
+     * 核对已知事件的固定长度和字段数量，再定位 Borsh 主体。
+     * Verifies a known event's fixed length and number of fields before locating the Borsh body.
+     *
+     * @param raw 保留日志行号的原始事件。 Raw event retaining its log index.
+     * @param data 已进行 Base64 解码的原始数据。 Data decoded from Base64.
+     * @param separator 第二段运行时数据的分隔位置，单字段时为 -1。 Second runtime data field separator, or -1 for a single field.
+     * @param expectedBytes 对应事件的完整字节长度。 Exact byte length for the corresponding event.
+     * @return 定位至小端 Borsh 主体的缓冲区。 Little-endian buffer positioned at the Borsh body.
+     */
+    private static ByteBuffer readBody(RawEvent raw, byte[] data, int separator, int expectedBytes) {
+        if (separator >= 0 || data.length != expectedBytes) {
             throw new IllegalStateException("Invalid lending event layout at log " + raw.logIndex());
         }
 
-        /** 双方标识的长度相同。公钥保持原始字节顺序，u64 金额按 Borsh 小端顺序读取。 Both discriminators have the same length. Keys retain on-chain byte order and u64 amounts are little-endian. */
+        /** 事件标识均为八字节。公钥保持原始顺序，u64 金额按 Borsh 小端顺序读取。 All discriminators are eight bytes. Keys retain byte order and u64 amounts are little-endian. */
         int discriminatorBytes = BORROW_ACTION_DISCRIMINATOR.length;
-        ByteBuffer body = ByteBuffer.wrap(data, discriminatorBytes, data.length - discriminatorBytes).order(ByteOrder.LITTLE_ENDIAN);
-        return borrowing ? readBorrowAction(raw.logIndex(), body, signers) : readSupplyWithdrawal(raw.logIndex(), body, signers);
+        return ByteBuffer.wrap(data, discriminatorBytes, data.length - discriminatorBytes).order(ByteOrder.LITTLE_ENDIAN);
     }
 
     /**
@@ -148,6 +180,31 @@ final class LendingActivityDecoder {
     }
 
     /**
+     * 读取已转入资金池的代币和发给出借人的记账份额。
+     * Reads tokens transferred into the pool and accounting shares credited to the supplier.
+     *
+     * @param logIndex 事件在原始交易日志中的零基序号。 Zero-based position in the original transaction logs.
+     * @param body 长度已核验的 Borsh 字段缓冲区。 Borsh field buffer with a verified length.
+     * @param signers 静态账户中的交易签名人。 Transaction signers from the static message accounts.
+     * @return 已核对出借人签名和正数出借资产、份额的事件。 Event with a verified supplier signature and positive assets and shares.
+     */
+    private static SupplyDepositEvent readSupplyDeposit(int logIndex, ByteBuffer body, Set<String> signers) {
+        /** 市场、签名出借人和入池代币 Mint 的链上公钥。 On-chain keys of the market, signing supplier, and deposited mint. */
+        String market = readPublicKey(body);
+        String supplier = readPublicKey(body);
+        String debtMint = readPublicKey(body);
+        requireSigner(logIndex, supplier, signers);
+
+        /** 实际入池资产和新增出借份额使用各自的最小单位。 Actual deposit and issued shares in their respective base units. */
+        BigInteger amountRaw = readUnsigned(body);
+        BigInteger sharesIssuedRaw = readUnsigned(body);
+        if (amountRaw.signum() == 0 || sharesIssuedRaw.signum() == 0) {
+            throw new IllegalStateException("Zero assets or shares in lending deposit at log " + logIndex);
+        }
+        return new SupplyDepositEvent(logIndex, market, supplier, debtMint, amountRaw, sharesIssuedRaw);
+    }
+
+    /**
      * 读取出借人提取的份额、实际到账和剩余份额。
      * Reads burned shares, actual payout, and remaining shares for a supplier withdrawal.
      *
@@ -174,11 +231,46 @@ final class LendingActivityDecoder {
     }
 
     /**
+     * 读取清算人代偿、抵押品划转及坏账核销的实际数量。
+     * Reads the actual repayment, seized collateral, and bad debt written off.
+     *
+     * @param logIndex 整笔交易原始的零基日志行号。 Original zero-based log index in the full transaction.
+     * @param body 长度已核验的 Borsh 字段缓冲区。 Borsh field buffer with verified length.
+     * @param signers 静态账户中的交易签名人。 Transaction signers from the static message accounts.
+     * @return 已核对清算角色、签名及金额关系的事件。 Event with validated liquidation roles, signer, and amount relationships.
+     */
+    private static LiquidationEvent readLiquidation(int logIndex, ByteBuffer body, Set<String> signers) {
+        /** 依 Borsh 顺序读取市场、双方与两个 Mint 公钥。 Read market, participants, and mints in Borsh order. */
+        String market = readPublicKey(body);
+        String borrower = readPublicKey(body);
+        String liquidator = readPublicKey(body);
+        String debtMint = readPublicKey(body);
+        String collateralMint = readPublicKey(body);
+        requireSigner(logIndex, liquidator, signers);
+        if (liquidator.equals(borrower) || debtMint.equals(collateralMint)) {
+            throw new IllegalStateException("Identical participants or mints in lending liquidation at log " + logIndex);
+        }
+
+        /** 代偿和坏账按借款 Mint 最小单位计，划转抵押品按抵押 Mint 最小单位计。 Repayment and write-off use debt mint base units, and seized collateral uses collateral mint base units. */
+        BigInteger repaidRaw = readUnsigned(body);
+        BigInteger seizedCollateralRaw = readUnsigned(body);
+        BigInteger badDebtRaw = readUnsigned(body);
+        // 代偿与领回抵押品必须成对。两者皆零时仅接受有坏账核销的事件。
+        // Repayment and collateral seizure must occur together. If both are zero, a positive bad debt write-off is required.
+        boolean hasRepayment = repaidRaw.signum() > 0;
+        if (hasRepayment != (seizedCollateralRaw.signum() > 0) || (!hasRepayment && badDebtRaw.signum() == 0)) {
+            throw new IllegalStateException("Invalid amounts in lending liquidation at log " + logIndex);
+        }
+        return new LiquidationEvent(logIndex, market, borrower, liquidator, debtMint, collateralMint,
+                repaidRaw, seizedCollateralRaw, badDebtRaw);
+    }
+
+    /**
      * 核对钱包属于交易静态签名账户，确保活动匹配实际操作者。
      * Verifies that the wallet is a static transaction signer so the activity identifies the actual actor.
      *
      * @param logIndex 事件在原始交易日志中的零基序号。 Zero-based event position in the original transaction logs.
-     * @param wallet 事件中的借款人或出借人。 Borrower or supplier identified in the event.
+     * @param wallet 发起链上操作的钱包。 Wallet authorizing the on-chain operation.
      * @param signers 静态账户中的交易签名人。 Transaction signers from the static message accounts.
      * @throws IllegalStateException 事件钱包未签名。 The event wallet did not sign.
      */
@@ -226,6 +318,8 @@ final class LendingActivityDecoder {
         REPAY("LENDING_REPAY", "DEBT_REPAID", false, "BORROWER"),
         /** 市场将抵押品转回借款人。 The market returns collateral to the borrower. */
         WITHDRAW_COLLATERAL("LENDING_WITHDRAW_COLLATERAL", "ASSET_OUT", true, "BORROWER"),
+        /** 出借人向池内转入借款资产，领取记账份额。 The supplier transfers debt assets into the pool and receives accounting shares. */
+        SUPPLY("LENDING_SUPPLY", "ASSET_IN", false, "SUPPLIER"),
         /** 资金池把对应份额的借款资产支付给出借人。 The pool pays debt assets to the supplier for the withdrawn shares. */
         WITHDRAW_SUPPLY("LENDING_WITHDRAW_SUPPLY", "ASSET_OUT", false, "SUPPLIER");
 
@@ -275,14 +369,17 @@ final class LendingActivityDecoder {
         }
     }
 
-    /** 交易活动通用字段，由两种实际链上事件提供。 Common activity fields provided by the two actual on-chain events. */
-    sealed interface Event permits BorrowerEvent, SupplyWithdrawalEvent {
+    /** 不同借贷链上事件共有的交易活动字段。 Transaction activity fields shared by on-chain lending events. */
+    sealed interface Event permits SinglePartyEvent, LiquidationEvent {
         /** @return 整笔交易原始零基日志序号。 Original zero-based transaction log index. */
         int logIndex();
 
         /** @return 事件的市场状态账户公钥。 Market state account key from the event. */
         String market();
+    }
 
+    /** 单一钱包发起且只有一种实际转账的借款或出借事件。 Borrow or supply actions with a single wallet and one actual transfer. */
+    sealed interface SinglePartyEvent extends Event permits BorrowerEvent, SupplyEvent {
         /** @return 已经核对交易签名的事件钱包公钥。 Event wallet key verified against transaction signers. */
         String wallet();
 
@@ -308,7 +405,35 @@ final class LendingActivityDecoder {
     record BorrowerEvent(
             int logIndex, String market, String wallet, BigInteger amountRaw, BigInteger collateralRaw,
             BigInteger debtRaw, Action action
-    ) implements Event {
+    ) implements SinglePartyEvent {
+    }
+
+    /** 出借存入与提取明确记录实际转账的借款 Mint。 Both supply and withdrawal events identify the debt mint actually transferred. */
+    sealed interface SupplyEvent extends SinglePartyEvent permits SupplyDepositEvent, SupplyWithdrawalEvent {
+        /** @return 链上事件中的实际借款 Mint。 Actual debt mint recorded on-chain. */
+        String debtMint();
+    }
+
+    /**
+     * 已核对的链上出借存入。
+     * Verified on-chain supply deposit.
+     *
+     * @param logIndex 整笔交易原始零基日志序号。 Original zero-based transaction log index.
+     * @param market 事件的市场状态账户公钥。 Market state account key from the event.
+     * @param wallet 已核对交易签名的出借人公钥。 Supplier key verified against transaction signers.
+     * @param debtMint 实际存入的代币 Mint。 Mint of the tokens deposited into the pool.
+     * @param amountRaw 实际存入的借款代币最小单位数。 Actual deposit amount in debt mint base units.
+     * @param sharesIssuedRaw 发放的六位小数出借份额最小单位数。 Issued supply shares in six-decimal base units.
+     */
+    record SupplyDepositEvent(
+            int logIndex, String market, String wallet, String debtMint, BigInteger amountRaw, BigInteger sharesIssuedRaw
+    ) implements SupplyEvent {
+
+        /** @return 对应的出借存入操作。 The supply deposit action. */
+        @Override
+        public Action action() {
+            return Action.SUPPLY;
+        }
     }
 
     /**
@@ -326,12 +451,32 @@ final class LendingActivityDecoder {
     record SupplyWithdrawalEvent(
             int logIndex, String market, String wallet, String debtMint, BigInteger sharesBurnedRaw,
             BigInteger amountRaw, BigInteger remainingSharesRaw
-    ) implements Event {
+    ) implements SupplyEvent {
 
         /** @return 对应的资金提取操作。 The supplied-funds withdrawal action. */
         @Override
         public Action action() {
             return Action.WITHDRAW_SUPPLY;
         }
+    }
+
+    /**
+     * 已核对的清算和坏账核销事件。
+     * Verified liquidation and bad debt write-off.
+     *
+     * @param logIndex 原始的零基日志行号。 Original zero-based log index.
+     * @param market 事件市场 PDA。 Market PDA from the event.
+     * @param borrower 被清算的借款人，可不参与签名。 Borrower being liquidated, who need not sign.
+     * @param liquidator 已核对交易签名的清算人。 Liquidator verified against transaction signers.
+     * @param debtMint 代偿及坏账使用的借款 Mint。 Debt mint for repayment and write-off.
+     * @param collateralMint 被划转的抵押品 Mint。 Mint of the collateral transferred.
+     * @param repaidRaw 实际代偿的借款代币最小单位数。 Debt tokens actually repaid in base units.
+     * @param seizedCollateralRaw 实际划转的抵押品最小单位数。 Collateral seized in base units.
+     * @param badDebtRaw 已核销债务的借款代币最小单位数。 Debt written off in the debt mint's base units.
+     */
+    record LiquidationEvent(
+            int logIndex, String market, String borrower, String liquidator, String debtMint, String collateralMint,
+            BigInteger repaidRaw, BigInteger seizedCollateralRaw, BigInteger badDebtRaw
+    ) implements Event {
     }
 }

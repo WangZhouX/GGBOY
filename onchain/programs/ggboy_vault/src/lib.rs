@@ -1,5 +1,5 @@
-//! 策略金库程序入口，负责初始化金库、存入资产和赎回份额。
-//! Strategy vault entry point for initialization, deposits, and redemptions.
+//! 策略金库程序入口，负责初始化、存赎、调仓及借贷联动。
+//! Strategy vault entry point for initialization, investor flows, exchange, and lending.
 
 use anchor_lang::prelude::*;
 
@@ -7,11 +7,16 @@ mod deposit;
 mod initialize;
 mod redeem;
 mod state;
+mod strategy;
+mod strategy_lending;
+mod strategy_valuation;
 
 pub use deposit::*;
 pub use initialize::*;
 pub use redeem::*;
 pub use state::Vault;
+pub use strategy::*;
+pub use strategy_lending::*;
 
 // 工作区为本程序记录的 Localnet 公钥。
 // Localnet public key configured for this program in the workspace.
@@ -47,8 +52,8 @@ pub mod ggboy_vault {
         deposit::handle(context, assets_in, min_shares_out)
     }
 
-    /// 按赎回前的净值销毁投资者份额，并从纯现金金库支付结算资产。
-    /// Burn investor shares at the pre-redemption NAV and pay the settlement asset from cash custody.
+    /// 按赎回前的净值销毁投资者份额，现金不足时可先从出借仓位收回并支付。
+    /// Burn investor shares at pre-redemption NAV, with optional recall from lending before payment.
     ///
     /// `context` 包含投资者签名、已配置的金库账户和投资者的代币账户。
     /// `context` contains the investor signer, configured vault accounts, and investor token accounts.
@@ -56,8 +61,91 @@ pub mod ggboy_vault {
     /// `shares_in` is in GG-V base units and `min_assets_out` is in mockUSDC base units. Both must be positive.
     /// 销毁、支付及成交记录在同一笔交易执行。任一代币操作失败时回滚赎回。
     /// The burn, payment, and receipt occur in one transaction. Either token operation failing reverts the redemption.
-    pub fn redeem(context: Context<Redeem>, shares_in: u64, min_assets_out: u64) -> Result<()> {
+    pub fn redeem<'info>(
+        context: Context<'info, Redeem<'info>>,
+        shares_in: u64,
+        min_assets_out: u64,
+    ) -> Result<()> {
         redeem::handle(context, shares_in, min_assets_out)
+    }
+
+    /// 管理员为现有金库启用策略，创建规范托管并保存比例参数。
+    /// Enable strategy on an existing vault, create canonical custody, and store the ratio limits.
+    ///
+    /// `manager` 是策略钱包。留存、出借和每笔兑换限制使用基点。
+    /// `manager` is the strategy wallet. Reserve, lending, and per-swap limits use basis points.
+    pub fn initialize_vault_strategy(
+        context: Context<InitializeVaultStrategy>,
+        manager: Pubkey,
+        reserve_bps: u16,
+        lending_cap_bps: u16,
+        max_trade_bps: u16,
+    ) -> Result<()> {
+        strategy::initialize(
+            context,
+            manager,
+            reserve_bps,
+            lending_cap_bps,
+            max_trade_bps,
+        )
+    }
+
+    /// 由现有金库管理员启用投资者自动收回功能。
+    /// Enable investor auto recall as the vault's existing administrator.
+    ///
+    /// `context` 绑定签名管理员与已启用策略的规范金库。迁移只设置功能位。
+    /// `context` binds the signing administrator and canonical active strategy vault. Migration only sets the capability bit.
+    pub fn enable_auto_recall(context: Context<EnableAutoRecall>) -> Result<()> {
+        strategy::enable_auto_recall(context)
+    }
+
+    /// 使用已绑定的测试储备和实时链上价格兑换金库资产。
+    /// Exchange vault assets using the bound test reserves and current on-chain price.
+    ///
+    /// `buy` 为真时用现金买入策略资产。输入和到账下限按各自 Mint 最小单位计。
+    /// `buy` uses cash to buy the spot asset when true. Input and minimum output use their respective mint base units.
+    pub fn strategy_swap(
+        context: Context<StrategySwap>,
+        buy: bool,
+        amount_in: u64,
+        min_out: u64,
+    ) -> Result<()> {
+        strategy::swap(context, buy, amount_in, min_out)
+    }
+
+    /// 在约束范围内把闲置现金投入绑定的借贷市场。
+    /// Supply idle cash to the bound lending market within configured limits.
+    ///
+    /// `assets_in` 和 `min_shares_out` 分别是现金和池份额最小单位。
+    /// `assets_in` and `min_shares_out` are cash and pool share base units.
+    pub fn strategy_lend(
+        context: Context<StrategyLend>,
+        assets_in: u64,
+        min_shares_out: u64,
+    ) -> Result<()> {
+        strategy_lending::lend(context, assets_in, min_shares_out)
+    }
+
+    /// 从借贷市场赎回金库持有的出借份额，把实际回款退回现金托管。
+    /// Redeem the vault's lending shares and return realized cash to vault custody.
+    ///
+    /// `shares_in` 是池份额最小单位，`min_assets_out` 是最低到账的现金最小单位。
+    /// `shares_in` and `min_assets_out` use pool share and minimum cash base units, respectively.
+    pub fn strategy_recall(
+        context: Context<StrategyRecall>,
+        shares_in: u64,
+        min_assets_out: u64,
+    ) -> Result<()> {
+        strategy_lending::recall(context, shares_in, min_assets_out)
+    }
+
+    /// 清理按有效预言机价无法产生一单位现金到账的完整现货尾仓。
+    /// Clear the full spot balance only when its valid oracle quote cannot pay one cash base unit.
+    ///
+    /// `context` 使用与换币相同的账户约束。指令将尾仓转入测试储备并记录事件。
+    /// `context` uses the swap account constraints. The instruction transfers dust to the test reserve and logs it.
+    pub fn clear_strategy_dust(context: Context<StrategySwap>) -> Result<()> {
+        strategy::clear_dust(context)
     }
 
     /// 验证脚手架指令可以调用，返回成功且不读写链上账户。
@@ -147,4 +235,44 @@ pub enum VaultError {
     /// The calculated payout falls below the investor's signed minimum.
     #[msg("Calculated redemption payout is below the minimum")]
     MinimumAssetsOutNotMet,
+    /// 策略估值、绑定或者账户布局校验失败。
+    /// Strategy valuation account bindings or layouts are invalid.
+    #[msg("Required strategy accounts do not match the vault")]
+    InvalidStrategyAccounts,
+    /// 链上价格为空、无效或超过约定时效。
+    /// The on-chain price is missing, invalid, or outside its freshness window.
+    #[msg("The market test price is unavailable, invalid or stale")]
+    InvalidStrategyPrice,
+    /// 策略估值或输出超出支持的代币整数范围。
+    /// Strategy valuation or a transfer output exceeds the supported integer range.
+    #[msg("Vault strategy value exceeds the supported amount range")]
+    StrategyValuationOverflow,
+    /// 最后一次赎回前必须将现货与出借份额全部结清。
+    /// Spot and lending positions must be cleared before the last redemption.
+    #[msg("Sell all spot and recall all lending shares before redeeming the final vault shares")]
+    StrategyPositionsRemain,
+    /// 策略管理身份或基点参数不在允许范围内。
+    /// The strategy manager identity or basis-point parameters are invalid.
+    #[msg("Invalid strategy manager or limit parameters")]
+    InvalidStrategyParameters,
+    /// 策略动作的输入和到账下限必须为正。
+    /// Strategy input and minimum output must be positive.
+    #[msg("Strategy input and minimum output must be greater than zero")]
+    InvalidStrategyAmount,
+    /// 已成交输出为零或低于管理者要求的下限。
+    /// Output is zero or below the minimum authorized by the manager.
+    #[msg("Strategy output is below its minimum")]
+    MinimumStrategyOutputNotMet,
+    /// 本笔交易超出配置范围，或出借后现金低于要求。
+    /// This action exceeds configured limits or would leave insufficient retained cash.
+    #[msg("The operation exceeds the strategy limit")]
+    StrategyLimitExceeded,
+    /// 实际托管或测试储备余额不足。
+    /// Actual custody or test reserves have insufficient liquidity.
+    #[msg("Vault custody or test swap reserves are insufficient")]
+    InsufficientStrategyLiquidity,
+    /// 策略尾仓能变现，需用普通卖出换回金库现金。
+    /// The spot balance can be sold for cash and cannot be discarded as dust.
+    #[msg("The spot balance has value and must be sold for cash")]
+    StrategyDustHasValue,
 }

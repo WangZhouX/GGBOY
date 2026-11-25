@@ -6,6 +6,7 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
 use crate::{
     debt::available_accounted_cash,
+    interest,
     state::{
         BORROW_MARKET_SEED, CASH_VAULT_SEED, MARKET_SEED, SUPPLY_POOL_SEED, SUPPLY_POSITION_SEED,
     },
@@ -173,11 +174,6 @@ pub(super) fn handle(
     min_amount_out_raw: u64,
 ) -> Result<()> {
     require!(shares_raw > 0, LendingError::InvalidSupplyWithdrawalShares);
-    require!(
-        min_amount_out_raw > 0,
-        LendingError::InvalidMinimumSupplyWithdrawal
-    );
-
     let accounts = context.accounts;
     let market = accounts.market.key();
     let pool = &mut accounts.supply_pool;
@@ -193,21 +189,49 @@ pub(super) fn handle(
         .shares_raw
         .checked_sub(shares_raw)
         .ok_or(LendingError::InsufficientSupplyShares)?;
-    let amount_out_raw =
-        calculate_payout(shares_raw, pool.total_shares_raw, pool.accounted_assets_raw)?;
+    // 已计息债务参与份额定价，但真正可付金额受登记现金和托管限制。
+    // Indexed debt contributes to share value, while payouts remain limited by recorded and physical cash.
+    let pool_info = pool.to_account_info();
+    let mut indexed = interest::read_pool(&pool_info)?;
+    let (assets_before, available) = if let Some(state) = indexed {
+        require!(
+            state.cash <= accounts.cash_vault.amount,
+            LendingError::InvalidSupplyAccounting
+        );
+        (
+            state.project(Clock::get()?.unix_timestamp)?.assets,
+            state.cash,
+        )
+    } else {
+        let principal = outstanding_principal(&accounts.borrow_market, market)?;
+        (
+            pool.accounted_assets_raw,
+            available_accounted_cash(
+                pool.accounted_assets_raw,
+                accounts.cash_vault.amount,
+                principal,
+            )?,
+        )
+    };
+    // 全部放弃已无现金价值的仓位无需支付。正值仓位始终要求正的签名下限。
+    // Abandoning an entire worthless position moves no cash. Positive-valued positions still require a positive signed minimum.
+    if min_amount_out_raw == 0 {
+        require!(
+            remaining_shares_raw == 0
+                && u128::from(shares_raw) * u128::from(assets_before)
+                    < u128::from(pool.total_shares_raw),
+            LendingError::InvalidMinimumSupplyWithdrawal
+        );
+        pool.accounted_assets_raw = assets_before;
+        pool.total_shares_raw -= shares_raw;
+        position.shares_raw = 0;
+        return Ok(());
+    }
+    let amount_out_raw = calculate_payout(shares_raw, pool.total_shares_raw, assets_before)?;
     require!(
         amount_out_raw >= min_amount_out_raw,
         LendingError::MinimumSupplyWithdrawalNotMet
     );
-
-    // 未偿本金参与份额定价，但在实际偿还前不能支付给出借人。
-    // Outstanding principal counts toward share value but cannot fund a payout until it is repaid.
-    let principal = outstanding_principal(&accounts.borrow_market, market)?;
-    let available = available_accounted_cash(
-        pool.accounted_assets_raw,
-        accounts.cash_vault.amount,
-        principal,
-    )?;
     require!(
         amount_out_raw <= available,
         LendingError::InsufficientSupplyWithdrawalLiquidity
@@ -215,8 +239,11 @@ pub(super) fn handle(
 
     // 资产与总份额的扣减均已受上面的账户余额和报价约束。
     // The checked share balances and payout limits bound both pool debits.
-    let assets_after = pool.accounted_assets_raw - amount_out_raw;
+    let assets_after = assets_before - amount_out_raw;
     let total_shares_after = pool.total_shares_raw - shares_raw;
+    if let Some(state) = indexed.as_mut() {
+        state.cash -= amount_out_raw;
+    }
 
     // 使用原市场种子和 bump 为托管授权，SPL 转账失败时整笔交易回滚。
     // Use the existing market seeds and bump to authorize custody. An SPL transfer failure rolls back the full transaction.
@@ -239,6 +266,9 @@ pub(super) fn handle(
 
     // 转账成功后写回三处记账值，空仓保留原 PDA 以便该钱包再次出借。
     // Record all three balances after transfer success, keeping the existing PDA for the wallet to supply again.
+    if let Some(state) = indexed {
+        interest::store_pool(&pool_info, state)?;
+    }
     pool.accounted_assets_raw = assets_after;
     pool.total_shares_raw = total_shares_after;
     position.shares_raw = remaining_shares_raw;

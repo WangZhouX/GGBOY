@@ -16,7 +16,7 @@ export {
   type VaultTransactionLifetime as VaultDepositLifetime,
 } from './vaultTransaction';
 
-/** Devnet 现金金库存入所需的签名账户、金额和报价 slot。 Signer, amounts, and quote slot for a Devnet cash-vault deposit. */
+/** Devnet 金库存入所需的签名账户、金额和报价 slot。 Signer, amounts, and quote slot for a Devnet vault deposit. */
 export interface PrepareVaultDepositRequest {
   /** 已连接 Phantom 钱包的 Base58 公钥，作为存款人和费用支付人。 Connected Phantom Base58 key, used as the investor and fee payer. */
   walletAddress: string;
@@ -26,6 +26,8 @@ export interface PrepareVaultDepositRequest {
   minSharesRaw: bigint;
   /** 报价使用的已确认 RPC slot，后续模拟不能用更早状态。 Confirmed quote slot that simulation must not precede. */
   minContextSlot: number;
+  /** 策略启用时从同一报价 slot 取得的只读估值账户。 Read-only valuation accounts from the quote slot when strategy is enabled. */
+  pricingAccounts: readonly PublicKey[];
 }
 
 /**
@@ -53,6 +55,7 @@ export async function prepareVaultDeposit(request: PrepareVaultDepositRequest): 
       amountRaw: request.assetsRaw,
       minOutputRaw: request.minSharesRaw,
       minContextSlot: request.minContextSlot,
+      pricingAccounts: request.pricingAccounts,
       setup: [createAssociatedTokenAccountIdempotentInstruction(investor, investorShares, investor, shareMint)],
     });
   } catch (error) {

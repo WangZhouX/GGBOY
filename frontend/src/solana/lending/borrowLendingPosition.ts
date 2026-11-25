@@ -8,6 +8,7 @@ import type { LendingMarketListItem } from '../../features/lending/api/listLendi
 import { devnetRpcUrl } from '../getDevnetSolBalance';
 import { devnetLendingBorrowAddresses, devnetLendingPool, readDevnetBorrowAccounts, type LendingReadOptions } from './devnetLendingPool';
 import lendingIdl from './ggboyLendingIdl.json';
+import { indexedBorrowCapacity, indexedDebtAfterChange, type LendingDebtShareQuote } from './lendingInterest';
 import { readLendingBorrowActions } from './readBorrowActivity';
 
 /** 本次借款业务支持的交易与活动类型。 Borrowing transaction and activity types for this market. */
@@ -24,13 +25,17 @@ export interface DevnetBorrowPosition {
   positionExists: boolean;
   /** 锁定的抵押数量，按抵押 Mint 的最小单位。 Locked collateral in collateral mint base units. */
   collateralRaw: bigint;
-  /** 个人未偿借款本金，按借款 Mint 的最小单位。 Outstanding wallet principal in debt mint base units. */
+  /** 个人未偿债务，启用计息时包含截至观测时的应计利息。 Outstanding wallet debt including accrued interest when enabled. */
   debtRaw: bigint;
+  /** 市场是否已经启动定息。 Whether the market has activated fixed-rate interest. */
+  interestEnabled: boolean;
+  /** 同一观测下的指数、仓位和全市场债务份额。 Index, wallet shares, and market shares from the same observation. */
+  debtShareQuote: LendingDebtShareQuote | null;
   /** 链上现金账户中的实际借款代币余额。 Actual lending cash custody balance in debt mint base units. */
   cashRaw: bigint;
   /** 已记账且可以从现金支付的额度，按借款 Mint 的最小单位。 Cash-backed recorded liquidity in debt mint base units. */
   availableToBorrowRaw: bigint;
-  /** 全市场未偿本金，按借款 Mint 的最小单位。 Market-wide outstanding principal in debt mint base units. */
+  /** 全市场含应计利息的未偿债务，按借款 Mint 的最小单位。 Market-wide outstanding debt including accrued interest, in debt mint base units. */
   totalDebtRaw: bigint;
   /** 钱包关联账户可用于抵押的代币最小单位。 Wallet ATA collateral base units available to deposit. */
   collateralBalanceRaw: bigint;
@@ -217,8 +222,11 @@ export async function readDevnetBorrowPosition(
   const collateralValueNumerator = livePrice === null ? null : collateralRaw * livePrice;
   const collateralCapacityRaw = collateralValueNumerator === null ? null
     : collateralValueNumerator * borrowLtvBps / (collateralScale * basisPoints);
+  /** 计息模式下新增债务份额向上取整，报价上限也遵守同一舍入规则。 Indexed issuance rounds debt shares up, so the displayed input limit uses the same rounding. */
+  const borrowInputLimit = collateralCapacityRaw === null ? null : position.debtShareQuote === null
+    ? nonNegative(collateralCapacityRaw - debtRaw) : indexedBorrowCapacity(collateralCapacityRaw, position.debtShareQuote);
   const maxBorrowRaw = collateralRaw === 0n || availableToBorrowRaw === 0n ? 0n
-    : collateralCapacityRaw === null ? null : minimum(availableToBorrowRaw, nonNegative(collateralCapacityRaw - debtRaw));
+    : borrowInputLimit === null ? null : minimum(availableToBorrowRaw, borrowInputLimit);
   const maxWithdrawRaw = debtRaw === 0n ? collateralRaw
     : collateralRaw === 0n ? 0n
     : livePrice === null ? null
@@ -256,6 +264,23 @@ export function getBorrowOperationLimit(position: DevnetBorrowPosition, operatio
 }
 
 /**
+ * 用审阅时的债务指数估算本次操作后的个人未偿债务。
+ * Estimate wallet debt after an action using the debt index at review.
+ *
+ * @param position 用户正在审阅的仓位和计息状态。 Wallet position and interest state shown in review.
+ * @param operation 将要执行的借款操作。 Borrowing action under review.
+ * @param amountRaw 借出金额或授权还款上限，使用借款代币最小单位。 Borrow amount or authorized repayment limit, in debt mint base units.
+ * @returns 以最小单位表示的估算债务。 Estimated debt in base units.
+ */
+export function estimateBorrowDebtAfter(position: DevnetBorrowPosition, operation: BorrowOperation, amountRaw: bigint): bigint {
+  if (operation !== 'borrow' && operation !== 'repay') return position.debtRaw;
+  /** 用符号区分新增借款和消减债务，抵押调整不改变债务份额。 Use the sign to distinguish drawing and repaying debt. Collateral changes leave debt shares unchanged. */
+  const signedAmount = operation === 'borrow' ? amountRaw : -amountRaw;
+  return position.debtShareQuote === null
+    ? position.debtRaw + signedAmount : indexedDebtAfterChange(position.debtShareQuote, signedAmount);
+}
+
+/**
  * 在最新仓位上检查用户核对的金额，程序执行时会再次检查。
  * Validate the reviewed amount against fresh state. The program repeats all checks at execution.
  *
@@ -288,8 +313,9 @@ function validateOperation(request: BorrowOperationRequest, position: DevnetBorr
  * Construct one borrowing instruction from the public Anchor IDL and derive the wallet-controlled token account.
  *
  * @param request 市场、签名钱包、操作以及整数最小单位金额。 Market, signing wallet, action, and integer base-unit amount.
+ * @param interestEnabled 是否给计息借款或还款附上可写的资金池。 Whether an indexed draw or repayment requires a writable supply pool.
  */
-function buildOperation(request: BorrowOperationRequest) {
+function buildOperation(request: BorrowOperationRequest, interestEnabled = false) {
   assertMarket(request.market);
   if (request.amountRaw <= 0n || request.amountRaw > maxAmount) throw new BorrowOperationError('invalidAmount');
 
@@ -331,20 +357,21 @@ function buildOperation(request: BorrowOperationRequest) {
   const setup = action.creditsWallet
     ? [createAssociatedTokenAccountIdempotentInstruction(borrower, walletTokenAccount, borrower, transferMint)]
     : [];
-  const instruction = new TransactionInstruction({
-    programId,
-    data,
-    keys: definition.accounts.map((account) => {
-      /** Anchor 元数据决定账户顺序和权限；拒绝任何未绑定的账户。 Anchor metadata controls account order and permissions. Reject unbound accounts. */
-      const pubkey = addresses[account.name];
-      if (!pubkey) throw new BorrowOperationError('preparationFailed');
-      return {
-        pubkey,
-        isSigner: 'signer' in account && account.signer === true,
-        isWritable: 'writable' in account && account.writable === true,
-      };
-    }),
+  const keys = definition.accounts.map((account) => {
+    /** 保留 Anchor 账户顺序。计息借款同时更新已记账现金和归一化债务。 Preserve Anchor account order. An indexed draw refreshes tracked cash and normalized debt. */
+    const pubkey = addresses[account.name];
+    if (!pubkey) throw new BorrowOperationError('preparationFailed');
+    return {
+      pubkey,
+      isSigner: 'signer' in account && account.signer === true,
+      isWritable: ('writable' in account && account.writable === true) ||
+        (interestEnabled && operation === 'borrow' && account.name === 'supply_pool'),
+    };
   });
+  // 计息还款通过剩余账户更新规范资金池，原有指令参数和账户位置不变。
+  // Indexed repayment updates the canonical supply pool through a remaining account and preserves the original ABI.
+  if (interestEnabled && operation === 'repay') keys.push({ pubkey: supplyPool, isSigner: false, isWritable: true });
+  const instruction = new TransactionInstruction({ programId, data, keys });
   return { borrower, setup, instruction };
 }
 
@@ -375,6 +402,7 @@ function makeBorrowConnection(signal?: AbortSignal): Connection {
 const programErrorCodes: Partial<Record<string, BorrowOperationErrorCode>> = {
   InvalidBorrowAmount: 'invalidAmount',
   RepaymentExceedsDebt: 'invalidAmount',
+  ZeroIndexedRepayment: 'invalidAmount',
   InsufficientBorrowTokenBalance: 'insufficientAsset',
   CollateralTooLow: 'insufficientCollateral',
   InsufficientBorrowLiquidity: 'insufficientLiquidity',
@@ -421,9 +449,9 @@ export async function prepareBorrowOperation(
 ): Promise<PreparedBorrowOperation> {
   try {
     /** 将前端重读和后续模拟全部限定在已核对观测的同槽或更新位置。 Keep both fresh validation and simulation at or after the reviewed observation. */
-    const { borrower, setup, instruction } = buildOperation(request);
     const position = await readDevnetBorrowPosition(request.market, request.walletAddress, { minContextSlot: request.minContextSlot });
     validateOperation(request, position);
+    const { borrower, setup, instruction } = buildOperation(request, position.interestEnabled);
 
     /** 获取新的已确认区块哈希并保留有效高度，便于签名后安全处理重试。 Fetch a fresh confirmed blockhash and its expiry for safe post-signing recovery. */
     const connection = makeBorrowConnection();
@@ -482,16 +510,23 @@ function readBorrowReceipt(
   const keys = message.getAccountKeys({ accountKeysFromLookups: result.meta.loadedAddresses });
   const operations = message.compiledInstructions.filter((entry) => keys.get(entry.programIdIndex)?.equals(instruction.programId));
   const [executed] = operations;
-  if (operations.length !== 1 || !keys.get(0)?.equals(instruction.keys[0].pubkey) ||
-      !Buffer.from(executed.data).equals(instruction.data) || executed.accountKeyIndexes.length !== instruction.keys.length ||
-      !executed.accountKeyIndexes.every((index, offset) => keys.get(index)?.equals(instruction.keys[offset].pubkey))) {
+  /** 从已执行账户列表识别还款模式，历史回执不依赖市场当前的计息状态。 Identify repayment mode from its executed accounts so older receipts remain verifiable after activation. */
+  const indexedRepayment = request.operation === 'repay' && executed?.accountKeyIndexes.length === instruction.keys.length + 1;
+  const expectedKeys = indexedRepayment ? buildOperation(request, true).instruction.keys : instruction.keys;
+  if (operations.length !== 1 || !keys.get(0)?.equals(expectedKeys[0].pubkey) ||
+      !Buffer.from(executed.data).equals(instruction.data) || executed.accountKeyIndexes.length !== expectedKeys.length ||
+      !executed.accountKeyIndexes.every((index, offset) => keys.get(index)?.equals(expectedKeys[offset].pubkey)) ||
+      (indexedRepayment && !message.isAccountWritable(executed.accountKeyIndexes[expectedKeys.length - 1]))) {
     throw new BorrowOperationError('receiptUnavailable');
   }
 
   /** 金额和操作不能从客户端预览猜测，必须匹配唯一经过验证的链上事件。 Use the single verified on-chain event for the actual amount and operation, never the client preview. */
   const events = readLendingBorrowActions(result, request.market, request.walletAddress);
   const [event] = events;
-  if (events.length !== 1 || event.kind !== operationDefinitions[request.operation].kind || event.amountRaw !== request.amountRaw) {
+  /** 计息还款签名的是可扣上限，实际还款金额由链上整笔债务份额变化决定。 Indexed repayment authorizes a ceiling. Actual payment follows the on-chain change in debt shares. */
+  const amountMatches = indexedRepayment
+    ? event?.amountRaw > 0n && event.amountRaw <= request.amountRaw : event?.amountRaw === request.amountRaw;
+  if (events.length !== 1 || event.kind !== operationDefinitions[request.operation].kind || !amountMatches) {
     throw new BorrowOperationError('receiptUnavailable');
   }
   return {

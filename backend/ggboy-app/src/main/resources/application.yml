@@ -40,6 +40,11 @@ ggboy:
     program-id: "${GGBOY_DEVNET_LENDING_PROGRAM_ID:8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H}"
     # 每轮结束后的等待时间，默认 20 秒。 / Delay after each pass, 20 seconds by default.
     poll-interval: "${GGBOY_DEVNET_LENDING_POLL_INTERVAL:20s}"
+  devnet-lending-snapshot:
+    # 同步清算查询所需的已最终确认市场和钱包风险数据。 / Collect finalized market and wallet risk observations for liquidation.
+    enabled: "${GGBOY_DEVNET_LENDING_SNAPSHOT_ENABLED:true}"
+    # 每轮观测完成后的延迟，默认 20 秒。 / Wait 20 seconds after each observation pass by default.
+    poll-interval: "${GGBOY_DEVNET_LENDING_SNAPSHOT_POLL_INTERVAL:20s}"
   devnet-vault-snapshot:
     # 定时观测已登记的 Devnet 纯现金金库。 / Periodically sample registered Devnet cash vaults.
     enabled: "${GGBOY_DEVNET_VAULT_SNAPSHOT_ENABLED:true}"

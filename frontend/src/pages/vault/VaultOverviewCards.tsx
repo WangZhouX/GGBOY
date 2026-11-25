@@ -8,6 +8,8 @@ import './styles/vault-overview-cards.css';
 interface VaultOverviewCardsProps {
   /** 已登记的金库以及它的计价资产、份额资产和最新快照。 Registered vault with its quote asset, share asset, and latest snapshot. */
   vault: VaultListItem;
+  /** 直接读链确认策略已启用时，即使目录还未更新也显示管理者收回资金的规则。 Show manual recall rules when strategy is active on-chain, even before registry updates. */
+  strategyConfigured: boolean;
 }
 
 /** 定义列表中一项指标的名称及已格式化内容。 Label and formatted value for one definition-list metric. */
@@ -39,7 +41,7 @@ function VaultMetric({ label, value }: VaultMetricProps) {
  *
  * @param props 当前选中的金库及其观测结果。 Selected vault and its observed snapshot.
  */
-export function VaultOverviewCards({ vault }: VaultOverviewCardsProps) {
+export function VaultOverviewCards({ vault, strategyConfigured }: VaultOverviewCardsProps) {
   /** 指标翻译和数值格式使用同一界面语言。 Use the same UI language for metric translations and numeric formatting. */
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
@@ -91,9 +93,9 @@ export function VaultOverviewCards({ vault }: VaultOverviewCardsProps) {
       ));
     }
   }
-  /** 立即可付的资产仅含同一观测中的现金和借贷池可取回部分，以计价 Mint 最小单位计算。 Immediate liquidity includes cash and currently withdrawable lending funds at the same observation, in quote base units. */
-  const paymentLimitRaw = snapshot === null ? null
-    : (BigInt(snapshot.cashRaw) + BigInt(snapshot.lendingWithdrawableRaw)).toString();
+  /** 只有金库开启同笔收回时，池流动性才贡献给即时可支付资金。 Pool liquidity contributes to immediate payment only when same-transaction recall is enabled. */
+  const paymentLimitRaw = snapshot?.navRaw == null ? null
+    : (BigInt(snapshot.cashRaw) + (snapshot.autoRecallEnabled ? BigInt(snapshot.lendingWithdrawableRaw) : 0n)).toString();
 
   return (
     <div className="vault-overview-metrics">
@@ -124,8 +126,9 @@ export function VaultOverviewCards({ vault }: VaultOverviewCardsProps) {
       <section className="vault-overview-panel vault-overview-panel--funding" aria-labelledby={headingId + '-funding'}>
         <h2 id={headingId + '-funding'}>{t('vaultOverview.redemptionFunding')}</h2>
         <p className="vault-overview-funding-note">
-          {t(vault.lendingMarketAddress ? 'vaultOverview.fundingLending' : 'vaultOverview.fundingCash', { asset: quoteUnit })}
-          {vault.strategyAsset && <> {t('vaultOverview.fundingStrategy', { asset: quoteUnit })}</>}
+          {t(snapshot?.autoRecallEnabled ? 'vaultOverview.fundingAutoRecall'
+            : strategyConfigured || vault.lendingMarketAddress ? 'vaultOverview.fundingLending' : 'vaultOverview.fundingCash', { asset: quoteUnit })}
+          {(strategyConfigured || vault.strategyAsset) && <> {t('vaultOverview.fundingStrategy', { asset: quoteUnit })}</>}
         </p>
         {snapshot?.freshness === 'STALE' && <p className="vault-overview-observation">{t('vaultOverview.previousEstimate')}</p>}
         {snapshot === null ? (

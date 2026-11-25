@@ -54,7 +54,8 @@ export function SupplyPage() {
       >
         {liveSupply && debtAsset && withdrawalLimit && (
           <LendingPositionMetrics rows={[
-            { label: t('lendingPosition.suppliedValue'), value: formatPositionAmount(suppliedValueRaw.toString(), debtAsset, locale) },
+            { label: t(liveSupply.interestEnabled ? 'lendingPosition.suppliedValueWithInterest' : 'lendingPosition.suppliedValue'),
+              value: formatPositionAmount(suppliedValueRaw.toString(), debtAsset, locale) },
             { label: t('lendingPosition.supplyShares'), value: formatTokenAmount(liveSupply.sharesRaw, lendingShareDecimals, locale) + ' ' + t('lendingPosition.sharesUnit') },
             { label: t('lendingPosition.maxSupplyWithdraw'), value: formatPositionAmount(withdrawalLimit.assetsRaw.toString(), debtAsset, locale) },
             { label: t('lendingPosition.maxSupplyWithdrawShares'), value: formatTokenAmount(withdrawalLimit.sharesRaw, lendingShareDecimals, locale) + ' ' + t('lendingPosition.sharesUnit') },

@@ -9,3 +9,9 @@
 [redeemVault.ts](redeemVault.ts) 构造原子的份额归集、销毁和现金返还交易，按需创建钱包 mockUSDC 的关联收款账户。存赎共用 [vaultTransaction.ts](vaultTransaction.ts) 的模拟和确认逻辑。回到页面可按原签名继续核对状态。
 
 本目录包含 Solana 客户端代码。页面与交互位于 [策略金库](../../pages/vault/README.md)，历史查询通过 [金库 API](../../features/vault/api/README.md)。
+
+## 策略账户与交易
+
+[`strategyVaultAccounts.ts`](strategyVaultAccounts.ts) 派生金库策略、储备、借贷和预言机账户，和金库现金在同一个确认槽采样，计算现货估值、池份额价值、可收回金额和出借限额。旧金库保持 137 字节及原现金估值。已启用策略的金库标记为 138 字节，并给投资者交易附加六个估值账户。
+
+[`strategyVault.ts`](strategyVault.ts) 处理管理者报价、IDL 交易构造、签名前模拟和最终确认回执。通过签名和有效区块高度恢复查询，最终确认且经核验的事件才展示实际成交。页面位于 [pages/strategy](../../pages/strategy/README.md)。Localnet 读链默认使用 `http://127.0.0.1:8899`，可用 `VITE_SOLANA_LOCALNET_RPC_URL` 指定独立验证器。

@@ -1,10 +1,20 @@
-//! 纯现金金库的赎回账户约束、报价和代币结算。
-//! Account constraints, pricing, and token settlement for cash-only vault redemptions.
+//! 金库的赎回账户约束、报价和现金结算。
+//! Account constraints, pricing, and cash settlement for vault redemptions.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, TransferChecked};
 
-use crate::{state::VAULT_SEED, Vault, VaultError};
+use ggboy_lending::cpi;
+
+use crate::{
+    state::VAULT_SEED, strategy::auto_recall_enabled, strategy_lending::withdraw_cash,
+    strategy_valuation::vault_valuation, Vault, VaultError,
+};
+
+/// 已启用策略的金库使用六个估值账户，支持自动收回的赎回追加三个账户。
+/// Strategy vaults use six valuation accounts. Redemption with automatic recall appends three accounts.
+const VALUATION_ACCOUNT_COUNT: usize = 6;
+const RECALL_ACCOUNT_COUNT: usize = VALUATION_ACCOUNT_COUNT + 3;
 
 /// 赎回所需的账户，托管、份额和投资者余额均使用经典 SPL Token。
 /// Accounts for redemption. Custody, shares, and investor balances use classic SPL Token.
@@ -29,8 +39,8 @@ pub struct Redeem<'info> {
     /// Configured mockUSDC mint whose on-chain decimals are checked during payment.
     pub asset_mint: Account<'info, Mint>,
 
-    /// 金库 PDA 控制的现金账户，赎回前的余额是定价和支付上限的依据。
-    /// Vault-controlled cash account whose prior balance prices and caps the payout.
+    /// 金库 PDA 控制的现金账户，赎回前余额计入净值，也是收回和支付的结算账户。
+    /// Vault-controlled cash whose prior balance contributes to NAV and settles recall and payout.
     #[account(mut, token::mint = asset_mint, token::authority = vault)]
     pub cash_vault: Account<'info, TokenAccount>,
 
@@ -85,7 +95,11 @@ pub struct VaultRedeem {
 /// `min_assets_out` 是投资者接受的最低 mockUSDC 最小单位数。
 /// `context` supplies validated accounts, `shares_in` is in GG-V base units,
 /// and `min_assets_out` is the minimum acceptable payout in mockUSDC base units.
-pub(super) fn handle(context: Context<Redeem>, shares_in: u64, min_assets_out: u64) -> Result<()> {
+pub(super) fn handle<'info>(
+    context: Context<'info, Redeem<'info>>,
+    shares_in: u64,
+    min_assets_out: u64,
+) -> Result<()> {
     // 要求明确的赎回数量和正数到账下限。
     // Require explicit positive values for the share input and minimum payout.
     require_gt!(shares_in, 0, VaultError::InvalidRedeemAmount);
@@ -107,24 +121,58 @@ pub(super) fn handle(context: Context<Redeem>, shares_in: u64, min_assets_out: u
         shares_in,
         VaultError::InvalidRedemptionPricingState
     );
-    require_gt!(cash_before, 0, VaultError::InsufficientVaultCash);
+    // 旧客户端仍可传现金赎回的六个策略估值账户。新版的附加账户只用于收回。
+    // Existing clients can still pass the six strategy valuation accounts for cash redemption. Only recall uses the extra accounts.
+    let remaining = context.remaining_accounts;
+    let has_recall_accounts =
+        remaining.len() == RECALL_ACCOUNT_COUNT && auto_recall_enabled(&accounts.vault)?;
+    let valuation_accounts = if has_recall_accounts {
+        &remaining[..VALUATION_ACCOUNT_COUNT]
+    } else {
+        remaining
+    };
+    let valuation = vault_valuation(&accounts.vault, cash_before, valuation_accounts)?;
+    let final_exit = shares_in == supply_before;
 
-    // 净值等于托管现金。两个 u64 的乘积可放进 u128，整数除法向下取整。
-    // NAV equals custody cash. The product of two u64 amounts fits u128, and division rounds down.
-    let quoted_assets = u128::from(shares_in) * u128::from(cash_before) / u128::from(supply_before);
-    // 以现金余额为上限，确认报价既能付款也能安全转换成 SPL 代币的 u64 数量。
-    // Cap the quote at available cash, ensuring it is payable and safely fits the SPL u64 amount.
-    require_gte!(
-        u128::from(cash_before),
-        quoted_assets,
-        VaultError::InsufficientVaultCash
+    // 最后一笔必须清空现货，并在有出借份额时准备同笔完整收回。
+    // A final exit needs zero spot inventory and must allow a complete same-transaction recall if lending shares remain.
+    require!(
+        !final_exit
+            || (valuation.spot_raw == 0 && (valuation.pool.shares == 0 || has_recall_accounts)),
+        VaultError::StrategyPositionsRemain
     );
-    let assets_out = quoted_assets as u64;
+
+    // 总份额约束保证报价不超过 u64 净值。后续收回仅提供现金，不会重新定价投资者应得金额。
+    // The share bound caps the quote at u64 NAV. Recall provides cash without repricing the investor's proceeds.
+    let assets_out =
+        (u128::from(shares_in) * u128::from(valuation.nav) / u128::from(supply_before)) as u64;
     require_gt!(assets_out, 0, VaultError::ZeroAssetsOut);
     require_gte!(
         assets_out,
         min_assets_out,
         VaultError::MinimumAssetsOutNotMet
+    );
+
+    // 不足部分按最小池份额补足。最后一笔销毁则提取金库全部池份额。
+    // Cover the shortfall with the smallest pool share amount. A final exit withdraws the entire lending position.
+    let shortfall = assets_out.saturating_sub(cash_before);
+    let pool_shares = if final_exit {
+        valuation.pool.shares
+    } else if shortfall > 0 {
+        valuation.pool.shares_for_cash(shortfall)?
+    } else {
+        0
+    };
+    if pool_shares > 0 {
+        require!(has_recall_accounts, VaultError::InsufficientVaultCash);
+        // 最终退出时，借贷程序也允许完整注销零价值仓位。没有代币转账或现金回执。
+        // On final exit, lending also permits retiring an entire zero-value position without a token transfer or a cash receipt.
+        recall_for_redemption(accounts, remaining, pool_shares, shortfall)?;
+    }
+    require_gte!(
+        accounts.cash_vault.amount,
+        assets_out,
+        VaultError::InsufficientVaultCash
     );
 
     // 只有份额来源账户的投资者签名能授权本次销毁。
@@ -171,4 +219,56 @@ pub(super) fn handle(context: Context<Redeem>, shares_in: u64, min_assets_out: u
         assets_out,
     });
     Ok(())
+}
+
+/// 赎回时以金库 PDA 为出借者取回现金，不转移任何资产到投资者的任意收款账户。
+/// Recall cash with the vault PDA as supplier, crediting only its canonical cash account.
+///
+/// `remaining` 的六个估值账户已经过校验，新增账户由借贷 CPI 验证。调用后重读实际余额。
+/// The first six remaining accounts have passed valuation checks. Lending validates the additional accounts, and cash is reloaded.
+/// `pool_shares` 和 `shortfall` 分别为池份额和结算资产的最小单位。
+/// `pool_shares` and `shortfall` are pool share and settlement base units respectively.
+fn recall_for_redemption<'info>(
+    accounts: &mut Redeem<'info>,
+    remaining: &[AccountInfo<'info>],
+    pool_shares: u64,
+    shortfall: u64,
+) -> Result<()> {
+    let [_, _, market, _, supply_pool, supply_position, lending_cash, borrow_market, lending_program] =
+        remaining
+    else {
+        return err!(VaultError::InvalidStrategyAccounts);
+    };
+    require_keys_eq!(
+        *lending_program.key,
+        ggboy_lending::ID,
+        VaultError::InvalidStrategyAccounts
+    );
+    require!(
+        lending_program.executable
+            && supply_pool.is_writable
+            && supply_position.is_writable
+            && lending_cash.is_writable,
+        VaultError::InvalidStrategyAccounts
+    );
+
+    // 借贷程序在同笔 CPI 中校验实际现金和扣除未偿债务后的账面现金。失败时尚未销毁投资者份额。
+    // Lending checks actual custody and accounted cash net of debt inside the CPI. The investor's shares are still intact if it fails.
+    withdraw_cash(
+        cpi::accounts::WithdrawSupply {
+            supplier: accounts.vault.to_account_info(),
+            market: market.clone(),
+            debt_mint: accounts.asset_mint.to_account_info(),
+            cash_vault: lending_cash.clone(),
+            destination: accounts.cash_vault.to_account_info(),
+            supply_pool: supply_pool.clone(),
+            supply_position: supply_position.clone(),
+            borrow_market: borrow_market.clone(),
+            token_program: accounts.token_program.to_account_info(),
+        },
+        accounts.vault.bump,
+        pool_shares,
+        shortfall,
+    )?;
+    accounts.cash_vault.reload()
 }

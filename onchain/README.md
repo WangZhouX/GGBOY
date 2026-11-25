@@ -19,11 +19,15 @@ anchor build --ignore-keys
 
 公开仓库记录程序公钥。使用 `--ignore-keys` 可以直接构建对应的程序产物，供 Localnet 测试验证器按公开地址在创世时加载。如果使用本机程序密钥另行执行部署，先通过 `anchor keys sync` 同步程序公钥，再用 `anchor build` 检查地址并重新构建。
 
-策略金库提供 `initialize_vault`、`deposit` 和 `redeem`。初始化创建金库状态、空托管账户和六位小数的 `GG-V` 份额 Mint。存入和赎回按执行前的现金余额和份额供给量定价，各在一笔交易中完成资金与份额结算。策略兑换和借贷池联动属于后续阶段。两个程序均保留无状态的 `ping` 指令。
+策略金库提供 `initialize_vault`、`deposit` 和 `redeem`。初始化创建金库状态、空托管账户和六位小数的 `GG-V` 份额 Mint。存入和赎回按执行前的现金余额和份额供给量定价，各在一笔交易中完成资金与份额结算。独立策略配置启用后，支持管理者双向测试兑换、金库出借和收回。存赎使用配置启用后同一交易读到的总净值；赎回从托管现金支付。当前的公开 Devnet 部署仍是纯现金金库。两个程序均保留无状态的 `ping` 指令。
 
 ## Localnet 金库初始化与存赎
 
 初始化需通过 Solana 的可升级加载器部署金库程序，由程序升级权限持有人签名，并提供已创建的六位小数原版 SPL Token 测试 USDC Mint。存赎由投资者签名，使用该钱包已有的测试 USDC 和 `GG-V` 代币账户。账户约束和定价规则见[策略金库程序说明](programs/ggboy_vault/README.md)，复现命令见[Localnet 测试说明](tests/README.md)。
+
+## Localnet 策略管理
+
+`initialize_vault_strategy` 在原金库上建立独立配置和测试储备。验证流程用测试代币完成双向兑换及借贷池 CPI，并检查份额和现金约束。参见[金库程序说明](programs/ggboy_vault/README.md)和 [Localnet 策略验收](tests/README.md#localnet-策略金库管理)。
 
 ## Localnet 借贷市场初始化
 
@@ -156,6 +160,8 @@ spl-token --config "$GGBOY_DEVNET_CONFIG" balance "$GGBOY_MOCK_USDC_MINT" \
 | 抵押借款升级 slot | `525433231` |
 | 提取出借资金升级 | [Solana Explorer](https://explorer.solana.com/tx/5E1h2VdJgohjXawpUyaaN9cmYZpYKxBipdfBFPtXvP1D6RVhWVJqunSPtdURWBQEgQ8e1h1mdq5XBo9VMq9XCExf?cluster=devnet) |
 | 提取出借资金升级 slot | `525644144` |
+| 金库出借账户预备指令升级 | [Solana Explorer](https://explorer.solana.com/tx/5Z6uZdGLvdWGBwBFSzr1RYzWezgiPqUwzX9sDsbCmS2dg6Sc5R9Jhq6tstYaaUyQR59QN6xz57WFnBWekEj4NXdr?cluster=devnet) |
+| 金库出借账户预备指令升级 slot | `525711296` |
 | 测试价格 PDA | `4NeM7WfjHBxwFzScEeGX7TAUc7FeMDrvKBf1f6iN9znw` |
 | 初次发布测试价格（100 mockUSDC/tSOL） | [Solana Explorer](https://explorer.solana.com/tx/54kq38KvZswXsCXR3ELZLwhcTKh3guAzLDv5LBYJD11w3himTM2NMEmkwo5LdKEUptaK1FHhzYiDuoHUY2FPgb6c?cluster=devnet) |
 
@@ -168,6 +174,28 @@ Devnet 已完成抵押借款的同地址升级。最终确认后核对了程序�
 Devnet 完成同程序地址的出借升级。升级后的可执行文件与 Localnet 通过验收的产物逐字节一致，市场状态及两个已存在的托管账户保持原有内容。升级后模拟存入 100 mockUSDC，验证出借份额增加 100，模拟没有提交链上转账。
 
 提取出借资金在同一程序地址升级。最终确认后，使用已有的 100 份出借仓位模拟提取 1 份和全部 100 份，预期到账分别为 1 和 100 mockUSDC。超份额及最低到账超出报价均被拒绝。模拟保留仓位与资金池的实际状态。
+
+金库出借账户预备指令已在同一借贷程序地址升级。最终确认后比对了可执行文件和升级前的市场、资金池、预言机及仓位账户。该阶段使用本金账本。策略、计息和清算的后续升级见下文。
+
+## Devnet 策略金库与计息升级
+
+同地址升级先执行借贷、再执行金库。用 `CARGO_PROFILE_RELEASE_OPT_LEVEL=z anchor build --ignore-keys` 生成适合现有部署余额的发布产物。Localnet 使用同一产物验证了借贷同地址升级、清算、金库策略与赎回自动收回。Devnet 最终确认后比对了链上程序和 11 个原有业务账户。
+
+| 操作或配置 | Devnet 记录 |
+| --- | --- |
+| 借贷程序升级 | [Solana Explorer](https://explorer.solana.com/tx/4SN8JXhT8YyXEz8PBm2tEfm5WFu1oSxGpLkJ9gyexcJgEiZy5PFNepuDoV4bu3K6UFxnmAgVqEQ61qty6nLaXjWv?cluster=devnet) |
+| 借贷升级 slot | `525717876` |
+| 金库程序升级 | [Solana Explorer](https://explorer.solana.com/tx/4VnmcqxV9Zd3YCAarUYGZVU5emN6CqnHRks1VbgsPxHbc6kvL73q4utFTJdgj16x5xFUVtZ6qUbTh4PzamaWMFux?cluster=devnet) |
+| 金库升级 slot | `525717980` |
+| 启用借贷计息 | [Solana Explorer](https://explorer.solana.com/tx/29Sw1cG7s2YWsn1SrXonxLvy3StKJUbMqf1YsT5jFhBq47d9CBtm3pB2XXvDGtFB4tyLNg4v2C6iDofT2gZcVaaT?cluster=devnet) |
+| 启用金库策略与自动收回 | [Solana Explorer](https://explorer.solana.com/tx/1X5CChNiD3VTjyopqF2HXZjEdQdRpvb76Z91m8PkwmJZtbervhspnAHC8bu2zpDHHqc7kgMMzzQn6AWJTd74Mbr?cluster=devnet) |
+| 测试兑换储备入账 | [Solana Explorer](https://explorer.solana.com/tx/5aNpzMyTmyFhrYYbxMd1bJuKZPuykepUg5hyroLH3ZcJGY2P6V8ZeaMsCoB77ZLpWtg6G1HVAR7LtNdZXZCM4rGX?cluster=devnet) |
+| 策略配置 PDA | `Cu6FJ4sxr5sTJpTY437HdStMozYPtjP6mV5irHtdSWNF` |
+| 策略管理者（Phantom 账户 1） | `7jtDck8Hk2hJcZhQ9poHTBF5VfqgiJu59H4ATy9sWkrt` |
+
+现有市场已启用固定 10% 名义年利率。策略设置保留 10% 现金、借贷分配上限 70% 和单笔兑换上限 50%。测试兑换储备已入账 200 mockUSDC 和 2 tSOL。储备独立于金库资产，不计入投资者净值。
+
+链上启用后已执行[策略登记 SQL](../docs/backend/register-devnet-vault-strategy.sql)，后端最新快照确认自动收回已启用。Devnet 清算页的候选按最终确认的价格与钱包债务筛选。
 
 [程序目录](programs/README.md)
 

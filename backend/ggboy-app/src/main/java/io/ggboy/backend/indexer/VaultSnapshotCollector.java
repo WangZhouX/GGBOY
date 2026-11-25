@@ -15,14 +15,13 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.math.BigInteger;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 
 /**
- * 从 Devnet 定期观测纯现金金库，供每份净值历史使用。
- * Samples Devnet cash vaults periodically for per-share NAV history.
+ * 从 Devnet 定期观测已登记金库，供每份净值历史使用。
+ * Samples registered Devnet vaults periodically for per-share NAV history.
  */
 @Component
 @ConditionalOnProperty(prefix = "ggboy.devnet-vault-snapshot", name = "enabled", matchIfMissing = true)
@@ -64,8 +63,8 @@ class VaultSnapshotCollector {
     }
 
     /**
-     * 按轮次采集已登记的纯现金金库。一座金库读写失败后仍可采集其他已配置金库。
-     * Collects registered cash vaults on each pass, isolating lookup and write failures by vault.
+     * 按轮次采集已登记金库。一座金库读写失败后仍可采集其他已配置金库。
+     * Collects registered vaults on each pass, isolating lookup and write failures by vault.
      */
     @Scheduled(fixedDelayString = "${ggboy.devnet-vault-snapshot.poll-interval:30s}")
     void collect() {
@@ -73,9 +72,9 @@ class VaultSnapshotCollector {
         List<VaultDO> registeredVaults = vaults.selectByNetwork(NETWORK);
 
         for (VaultDO vault : registeredVaults) {
-            // 现金净值公式只适用于未配置策略资产或借贷市场的当前程序。
-            // The cash-only NAV formula applies to this program's vaults without strategy or lending positions.
-            if (!programId.equals(vault.programId()) || vault.strategyMint() != null || vault.lendingMarketAddress() != null) {
+            // 同一个金库程序支持现金和启用策略的部署。
+            // The same vault program supports cash-only and strategy-enabled vaults.
+            if (!programId.equals(vault.programId())) {
                 continue;
             }
             try {
@@ -91,15 +90,19 @@ class VaultSnapshotCollector {
      * 核对计算横跨代币金额和份额的换算精度，查询接口和走势图都从登记表取值。
      * Validates the decimals used to scale token and share quantities, which the read API and chart obtain from the registry.
      *
-     * @param vault 当前纯现金金库登记。 Current cash vault registration.
-     * @throws IllegalStateException 任一 Mint 缺失或者不是当前部署的经典六位代币时抛出。 If either registration is missing or differs from the deployed classic six-decimal tokens.
+     * @param vault 当前金库登记。 Current vault registration.
+     * @throws IllegalStateException 任一登记缺失、Mint 精度或代币程序不匹配。 A registration is missing or its mint precision or token program differs.
      */
     private void validateMintRegistry(VaultDO vault) {
-        /** 现有接口会公开这两枚 Mint 的精度。 The existing read API exposes decimals from these two registrations. */
-        List<AssetMintDO> registeredMints = mints.selectByNetworkAndMintAddresses(NETWORK, List.of(vault.quoteMint(), vault.shareMint()));
-        if (registeredMints.size() != 2 || registeredMints.stream().anyMatch(mint ->
-                mint.decimals() != VaultSnapshotRpc.TOKEN_DECIMALS || !VaultSnapshotRpc.TOKEN_PROGRAM_ID.equals(mint.programId()))) {
-            throw new IllegalStateException("The cash vault mint registry does not match its classic SPL token configuration");
+        /** 计价资产和份额沿用六位精度。已登记的策略代币使用九位精度。 Quote and shares retain six decimals. A registered strategy asset uses nine decimals. */
+        List<String> addresses = vault.strategyMint() == null ? List.of(vault.quoteMint(), vault.shareMint())
+                : List.of(vault.quoteMint(), vault.shareMint(), vault.strategyMint());
+        List<AssetMintDO> registeredMints = mints.selectByNetworkAndMintAddresses(NETWORK, addresses);
+        if (registeredMints.size() != addresses.size() || registeredMints.stream().anyMatch(mint ->
+                mint.decimals() != (mint.mintAddress().equals(vault.strategyMint())
+                                ? VaultStrategySnapshot.SPOT_DECIMALS : VaultSnapshotRpc.TOKEN_DECIMALS)
+                        || !VaultSnapshotRpc.TOKEN_PROGRAM_ID.equals(mint.programId()))) {
+            throw new IllegalStateException("The vault mint registry does not match its classic SPL token configuration");
         }
     }
 
@@ -110,7 +113,7 @@ class VaultSnapshotCollector {
      * @param vault 已配置的目标金库。 Registered vault to sample.
      */
     private void capture(VaultDO vault) {
-        /** 同一已最终确认 slot 上的两个估值输入。 Both valuation inputs from the same finalized slot. */
+        /** 同一已最终确认 slot 上的估值输入。 Valuation inputs from the same finalized slot. */
         VaultSnapshotRpc.Observation observation = rpc.observe(vault);
         /** 采集实际发生的 UTC 时间。 Actual capture timestamp in UTC. */
         OffsetDateTime observedAt = OffsetDateTime.now(ZoneOffset.UTC);
@@ -120,11 +123,12 @@ class VaultSnapshotCollector {
             return;
         }
 
-        // 纯现金净资产等于现金。缺少策略和出借头寸是已知的零值，且没有使用预言机价格。
-        // Cash-only NAV equals cash. Absent strategy and lending positions are known zeros and no oracle price was used.
+        // 测试预言机账户记录时间但没有发布 slot。可用时间在估值时与同槽 Clock 核对。
+        // The test oracle records time without a publish slot. Valuation checks its time against the same-slot Clock.
         VaultSnapshotDO sample = new VaultSnapshotDO(NETWORK, vault.vaultAddress(), observation.slot(), observedAt, null,
-                observation.cashRaw(), BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO,
-                observation.cashRaw(), observation.totalSharesRaw());
+                observation.cashRaw(), observation.strategyAmountRaw(), observation.strategyValueRaw(),
+                observation.lendValueRaw(), observation.recallableRaw(), observation.navRaw(), observation.totalSharesRaw(),
+                observation.autoRecallEnabled(), observation.lendingPositionOpen());
 
         try {
             snapshots.insert(sample);

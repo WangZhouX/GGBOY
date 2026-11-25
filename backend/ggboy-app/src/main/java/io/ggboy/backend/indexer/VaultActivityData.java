@@ -40,6 +40,24 @@ final class VaultActivityData {
     }
 
     /**
+     * 金库程序成功调用发出的活动共用日志序号和金库地址。
+     * Vault activities emitted by successful program invocations share a log index and vault address.
+     */
+    sealed interface VaultEvent permits Event, StrategyEvent {
+        /**
+         * 返回整笔交易中的零基原始日志行号。
+         * Returns the zero-based original log index within the transaction.
+         */
+        int logIndex();
+
+        /**
+         * 返回活动所属金库 PDA 的 Base58 公钥。
+         * Returns the Base58 public key of the vault PDA associated with this activity.
+         */
+        String vault();
+    }
+
+    /**
      * 已从金库程序的成功调用中解出的实际存入或赎回。
      * Actual deposit or redemption decoded from a successful vault program invocation.
      *
@@ -55,7 +73,39 @@ final class VaultActivityData {
     record Event(
             int logIndex, String vault, String investor, String assetMint, String shareMint,
             BigInteger assetAmount, BigInteger shareAmount, Action action
-    ) {
+    ) implements VaultEvent {
+    }
+
+    /**
+     * 已从金库程序成功调用解出的管理者换币、出借或收回事件。
+     * Manager swap, lending, or recall decoded from a successful vault program invocation.
+     *
+     * @param logIndex 原始零基日志行号。 Original zero-based log index.
+     * @param vault 金库状态账户的 Base58 公钥。 Base58 vault state account key.
+     * @param manager 签名策略管理者的 Base58 公钥。 Base58 key of the signing strategy manager.
+     * @param action 确定资金变动方向的策略动作。 Strategy action determining the movement direction.
+     * @param inputMint 换出的 Mint，出借和收回时为结算 Mint。 Swap output from custody, or the settlement mint for lending and recall.
+     * @param outputMint 换入的 Mint，出借和收回时为结算 Mint。 Swap input into custody, or the settlement mint for lending and recall.
+     * @param inputAmount 换出量，出借和收回时为实际转账量，按对应 Mint 最小单位计。 Swapped-out or transferred quantity in mint base units.
+     * @param outputAmount 换入量，出借和收回时与输入量相同，按对应 Mint 最小单位计。 Swapped-in quantity in mint base units, identical to the input for lending and recall.
+     */
+    record StrategyEvent(
+            int logIndex, String vault, String manager, StrategyAction action, String inputMint, String outputMint,
+            BigInteger inputAmount, BigInteger outputAmount
+    ) implements VaultEvent {
+    }
+
+    /**
+     * 策略指令的固定业务类型。
+     * Stable business actions emitted by strategy instructions.
+     */
+    enum StrategyAction {
+        /** 在结算和策略资产之间换币。 Swaps between settlement and strategy assets. */
+        SWAP,
+        /** 将结算资产从金库转入借贷池。 Supplies settlement assets from the vault to the lending pool. */
+        LEND,
+        /** 将结算资产从借贷池收回金库。 Recalls settlement assets from the lending pool to the vault. */
+        RECALL
     }
 
     /**

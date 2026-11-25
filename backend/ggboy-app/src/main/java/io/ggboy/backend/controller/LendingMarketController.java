@@ -190,23 +190,23 @@ public class LendingMarketController {
      * 查询一个市场在同一评估上下文中可展示的清算候选。
      * Lists liquidation candidates for one market under a single evaluation context.
      *
-     * <p>预计用于「清算市场」（原型 {@code #lend/liquidations}）中接替「演示借款仓位」的候选列表。
+     * <p>用于「清算市场」{@code /lend/liquidations} 的「可清算候选」区，对应原型 {@code #lend/liquidations}。
      * 选中市场后即可公开查询，无需连接钱包。进入页面、刷新、切换网络或市场、清算确认后加载首屏。
      * 续页原样传回 {@code nextCursor}。评估上下文变更导致游标无效时，重新加载首屏。
-     * Planned for the candidate list replacing Demo Borrower Position on the Liquidation Market page
-     * (prototype {@code #lend/liquidations}). Once a market is selected, fetch without a wallet connection.
+     * The Liquidation Candidates section on {@code /lend/liquidations} corresponds to prototype
+     * {@code #lend/liquidations}. Once a market is selected, fetch without a wallet connection.
      * Load the first page on page entry, refresh, network or market change, or liquidation confirmation.
      * Pass back {@code nextCursor} to load more, and restart from the first page if the evaluation context changes.
      *
      * <p>用 {@code availability} 区分同步中、过期、缺价和就绪。候选行展示 {@code walletAddress}、
-     * {@code collateralRaw}、{@code debtRaw}、{@code healthFactor} 及观测时间。行情信息取顶层的
-     * {@code oracleAddress}、{@code collateralPrice} 和 {@code oraclePublishedAt}。
-     * 连接清算人钱包后通过实时 RPC 预览代偿金额和可领取的抵押品。
+     * {@code collateralRaw}、{@code debtRaw} 和 {@code healthFactor}。列表上方的行情及观察时间使用顶层的
+     * {@code oracleAddress}、{@code collateralPrice}、{@code oraclePublishedAt} 和 {@code observedAt}。
+     * 启用清算交易的测试市场中，选中候选并连接清算人钱包后，通过实时 RPC 预览代偿和抵押到账。
      * Use {@code availability} to distinguish syncing, stale, price unavailable and ready states.
-     * Rows show {@code walletAddress}, {@code collateralRaw}, {@code debtRaw}, {@code healthFactor}, and
-     * observation time. Use the top-level {@code oracleAddress}, {@code collateralPrice}, and
-     * {@code oraclePublishedAt} for quote data. Preview repayment and seized collateral using live RPC
-     * once a liquidator wallet is connected.
+     * Rows show {@code walletAddress}, {@code collateralRaw}, {@code debtRaw}, and {@code healthFactor}.
+     * The context above the list uses {@code oracleAddress}, {@code collateralPrice},
+     * {@code oraclePublishedAt}, and {@code observedAt}. In enabled test markets, select a candidate and
+     * connect the liquidator wallet to preview repayment and collateral proceeds using live RPC.
      *
      * @param address 市场状态账户的 32 字节 Base58 公钥。 Base58 public key of the market state account, decoding to 32 bytes.
      * @param network 必填网络标识，限 {@code localnet} 和 {@code devnet}。 Required network, either {@code localnet} or {@code devnet}.

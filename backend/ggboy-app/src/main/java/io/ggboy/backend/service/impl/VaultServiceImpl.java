@@ -210,7 +210,8 @@ public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
         // 所有读取都以同一网络为范围，同地址在不同网络上独立登记。
         // Scope every read to the same network. The same address is registered independently on each network.
         String networkValue = network.wireValue();
-        if (getBaseMapper().selectByNetworkAndAddress(networkValue, vaultAddress) == null) {
+        VaultDO vault = getBaseMapper().selectByNetworkAndAddress(networkValue, vaultAddress);
+        if (vault == null) {
             return Optional.empty();
         }
 
@@ -227,7 +228,8 @@ public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
         VaultSnapshotDO vaultSnapshot = vaultSnapshotMapper
                 .selectByNetworkAndAddressAndSlot(networkValue, vaultAddress, position.slot());
         return Optional.of(new VaultPositionResponse(
-                networkValue, vaultAddress, walletAddress, toPositionSnapshot(position, vaultSnapshot, Instant.now())
+                networkValue, vaultAddress, walletAddress,
+                toPositionSnapshot(position, vaultSnapshot, vault.lendingMarketAddress() != null, Instant.now())
         ));
     }
 
@@ -237,16 +239,17 @@ public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
      *
      * @param position 最新钱包观测记录。 Latest observed wallet position.
      * @param vaultSnapshot 同 slot 的金库快照，未索引时为空。 Same-slot vault snapshot, or null if unindexed.
+     * @param strategyRegistered 目录是否关联策略借贷市场。 Whether the registry links a lending market for the strategy.
      * @param now 判断新鲜度的服务端时刻。 Server time used to assess freshness.
      * @return 含观测时间、持有份额和可用估值的响应快照。 Snapshot with observation time, shares and available valuation.
      */
     private VaultPositionResponse.Snapshot toPositionSnapshot(
-            VaultPositionSnapshotDO position, VaultSnapshotDO vaultSnapshot, Instant now
+            VaultPositionSnapshotDO position, VaultSnapshotDO vaultSnapshot, boolean strategyRegistered, Instant now
     ) {
         // 份额采集时间统一输出 UTC。估值不可用时继续保留持有份额和观测时间。
         // Return the share observation time in UTC. Keep the observed shares and timestamp when valuation is unavailable.
         Instant observedAt = position.observedAt().toInstant();
-        PositionValuation valuation = valuePosition(position, vaultSnapshot);
+        PositionValuation valuation = valuePosition(position, vaultSnapshot, strategyRegistered);
         return new VaultPositionResponse.Snapshot(
                 position.slot().toString(),
                 observedAt.toString(),
@@ -259,15 +262,19 @@ public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
     }
 
     /**
-     * 用同一 slot 的净值、份额总量和可用现金验证持仓估值，并计算安全赎回上限。
-     * Checks the stored position valuation and derives a safe redemption cap from same-slot NAV, supply and cash.
+     * 从同一 slot 的净值、份额总量和当时可支付的流动性计算安全赎回上限。
+     * Derives a safe redemption cap from same-slot NAV, share supply and spendable liquidity.
      *
      * @param position 钱包观测的份额及已索引估值。 Observed wallet shares and indexed valuation.
      * @param vaultSnapshot 与持仓同 slot 的金库观测，可为空。 Same-slot vault observation, which may be null.
+     * @param strategyRegistered 目录是否关联策略借贷市场，用于保守处理缺少出借状态的旧快照。
+     *        Whether the registry links a lending market, used to keep historical strategy quotes conservative.
      * @return 已核对的估值和赎回上限，或字段全为空的不可用估值。
      *        Checked valuation and redemption cap, or an unavailable valuation with all fields null.
      */
-    private static PositionValuation valuePosition(VaultPositionSnapshotDO position, VaultSnapshotDO vaultSnapshot) {
+    private static PositionValuation valuePosition(
+            VaultPositionSnapshotDO position, VaultSnapshotDO vaultSnapshot, boolean strategyRegistered
+    ) {
         if (vaultSnapshot == null || vaultSnapshot.navRaw() == null) {
             return PositionValuation.UNAVAILABLE;
         }
@@ -284,10 +291,26 @@ public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
             return PositionValuation.ZERO;
         }
 
-        // 金库现金和此刻可从借贷池取回的金额才可用于支付。按份额粒度向下舍入。
-        // Only vault cash and the currently withdrawable lending amount fund redemptions. Round down to share granularity.
-        BigInteger liquidity = vaultSnapshot.cashRaw().add(vaultSnapshot.lendingWithdrawableRaw());
-        BigInteger maxShares = liquidity.multiply(supply).divide(nav).min(shares);
+        // 只在链上已启用自动收回时将借贷可提额加入同一笔赎回的支付上限。
+        // Include recallable lending liquidity in a single redemption only when enabled on-chain.
+        BigInteger liquidity = vaultSnapshot.autoRecallEnabled()
+                ? vaultSnapshot.cashRaw().add(vaultSnapshot.lendingWithdrawableRaw()) : vaultSnapshot.cashRaw();
+        // 链上将到账向下取整。用 floor(shares × NAV ÷ supply) ≤ liquidity 的整数等价式求上限。
+        // Chain payouts round down. Invert floor(shares × NAV ÷ supply) ≤ liquidity for the exact share limit.
+        BigInteger maxShares = liquidity.add(BigInteger.ONE).multiply(supply)
+                .subtract(BigInteger.ONE).divide(nav).min(shares);
+        // 现货须预先结清。借贷仓位须全部收回，启用自动收回时可以同一笔完成。
+        // Spot must be unwound first. The entire lending position must be recalled, possibly in the same transaction.
+        Boolean lendingPositionOpen = vaultSnapshot.lendingPositionOpen();
+        // 未记录出借份额的旧策略快照无法排除零价值仓位，仍保留最后一个 GG-V 最小单位。
+        // Historical strategy snapshots without share evidence may still contain a zero-value lending position.
+        boolean positionOpen = Boolean.TRUE.equals(lendingPositionOpen) || vaultSnapshot.lendValueRaw().signum() > 0
+                || (lendingPositionOpen == null && strategyRegistered);
+        boolean cannotCloseLending = positionOpen && (!vaultSnapshot.autoRecallEnabled()
+                || vaultSnapshot.lendingWithdrawableRaw().compareTo(vaultSnapshot.lendValueRaw()) < 0);
+        if (vaultSnapshot.strategyAmountRaw().signum() > 0 || cannotCloseLending) {
+            maxShares = maxShares.min(supply.subtract(BigInteger.ONE));
+        }
         // 按可赎回份额向下计算计价资产到账。到账为零的份额无法用于赎回。
         // Round the payout down in quote base units. Shares that would pay zero cannot be redeemed.
         BigInteger payout = maxShares.multiply(nav).divide(supply);
@@ -295,13 +318,13 @@ public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
             maxShares = BigInteger.ZERO;
         }
 
-        // 已索引金额必须与同 slot 输入的整数口径相容，避免展示彼此矛盾的上限和预计到账。
-        // Indexed values must agree with the same-slot integer calculation to keep the share cap and payout consistent.
-        BigInteger value = position.positionValueRaw();
-        if (!shares.multiply(nav).divide(supply).equals(value) || !payout.equals(position.redeemableRaw())) {
+        // 核对已索引估值。赎回到账按金库同槽输入重新算，允许旧持仓记录保留历史现金口径。
+        // Check the stored valuation. Recompute proceeds from same-slot inputs so a historical cash-only hint cannot set the cap.
+        BigInteger value = shares.multiply(nav).divide(supply);
+        if (!value.equals(position.positionValueRaw())) {
             return PositionValuation.UNAVAILABLE;
         }
-        return new PositionValuation(value, maxShares, position.redeemableRaw());
+        return new PositionValuation(value, maxShares, payout);
     }
 
     /**
@@ -371,6 +394,7 @@ public class VaultServiceImpl extends ServiceImpl<VaultMapper, VaultDO>
                 snapshot.lendingWithdrawableRaw(),
                 snapshot.navRaw(),
                 snapshot.totalSharesRaw(),
+                record.autoRecallEnabled(),
                 SnapshotFreshness.at(observedAt, now, snapshotMaxAge)
         );
     }

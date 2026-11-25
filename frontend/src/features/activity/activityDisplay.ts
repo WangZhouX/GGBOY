@@ -17,7 +17,10 @@ const lendingLegTypes = new Map([
   ['LENDING_DEPOSIT_COLLATERAL', 'ASSET_IN'],
   ['LENDING_BORROW', 'ASSET_OUT'],
   ['LENDING_REPAY', 'DEBT_REPAID'],
+  ['LENDING_LIQUIDATION', 'DEBT_REPAID'],
   ['LENDING_WITHDRAW_COLLATERAL', 'ASSET_OUT'],
+  // 存入出借资产从出借者的钱包转入资金池。 Funds move from the supplier's wallet into the pool.
+  ['LENDING_SUPPLY', 'ASSET_IN'],
   // 提取出借资金时，实际代币从资金池转回出借人钱包。 The payout moves from the pool back to the supplier's wallet.
   ['LENDING_WITHDRAW_SUPPLY', 'ASSET_OUT'],
 ]);

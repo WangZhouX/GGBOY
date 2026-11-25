@@ -1,6 +1,7 @@
 import { ACCOUNT_SIZE, MINT_SIZE, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync, unpackAccount, unpackMint } from '@solana/spl-token';
 import { Connection, PublicKey, type AccountInfo } from '@solana/web3.js';
 import { devnetRpcUrl } from '../getDevnetSolBalance';
+import { decodeVaultStrategy, strategyVaultStateSize, vaultStrategyAddresses, vaultStrategyObservationKeys, type VaultStrategyHoldings } from './strategyVaultAccounts';
 import vaultIdl from './ggboyVaultIdl.json';
 
 /** 已部署到 Devnet 的现金金库程序公钥。 Public key of the cash vault program deployed on Devnet. */
@@ -23,7 +24,12 @@ export const devnetVaultConfig = {
   /** 初始化时指定的六位 mockUSDC Mint 公钥。 Public key of the six-decimal mockUSDC mint bound at initialization. */
   assetMint: new PublicKey('62vB22oh8fjXtitpKX3nLKyk9J7CVKb4ueKZcDGP1o1X'),
   shareMint,
+  vaultBump,
+  rpcUrl: devnetRpcUrl,
 } as const;
+
+/** 链上读金库所需的已核验登记和 RPC。 Verified registration and RPC endpoint for reading one vault deployment. */
+export type VaultDeployment = Omit<typeof devnetVaultConfig, 'rpcUrl'> & { readonly rpcUrl: string };
 
 /** Vault 在构建产物 IDL 中的八字节 Anchor 账户标识。 Eight-byte Anchor discriminator for Vault in the generated IDL. */
 const vaultDiscriminator = vaultIdl.accounts.find(({ name }) => name === 'Vault')?.discriminator;
@@ -62,7 +68,7 @@ interface DevnetVaultWalletBalances {
 }
 
 /** 同一个 Devnet 已确认 slot 中的现金金库与钱包观测。 Cash vault and wallet observation from one confirmed Devnet slot. */
-export interface DevnetVaultState {
+export interface DevnetVaultState extends VaultStrategyHoldings {
   /** RPC 返回的已确认观测 slot。 Confirmed observation slot returned by RPC. */
   slot: number;
   /** 浏览器读取该状态的 ISO 8601 UTC 时间。 ISO 8601 UTC time at which the browser read the state. */
@@ -80,9 +86,12 @@ export interface DevnetVaultState {
  * Validate the Anchor vault's account bindings and derivation bump.
  *
  * @param info RPC 读到的金库 PDA 账户。 Vault PDA account returned by RPC.
+ * @param deployment 同网络登记的程序及账户绑定。 Same-network program and account bindings.
+ * @returns 策略是否启用及链上标记的自动收回能力。 Strategy activation and on-chain automatic recall capability.
  */
-function validateVaultAccount(info: AccountInfo<Buffer> | null) {
-  if (!info || !info.owner.equals(programId) || info.executable || info.data.length !== vaultLayout.length) {
+function validateVaultAccount(info: AccountInfo<Buffer> | null, deployment: VaultDeployment) {
+  if (!info || !info.owner.equals(deployment.programId) || info.executable ||
+      (info.data.length !== vaultLayout.length && info.data.length !== strategyVaultStateSize)) {
     throw new Error('The configured Devnet vault account is invalid.');
   }
 
@@ -90,13 +99,16 @@ function validateVaultAccount(info: AccountInfo<Buffer> | null) {
   const data = info.data;
   if (
     vaultDiscriminator?.length !== 8 || !vaultDiscriminator.every((byte, index) => data[index] === byte) ||
-    !new PublicKey(data.subarray(vaultLayout.assetMint, vaultLayout.cashVault)).equals(devnetVaultConfig.assetMint) ||
-    !new PublicKey(data.subarray(vaultLayout.cashVault, vaultLayout.shareMint)).equals(cashVault) ||
-    !new PublicKey(data.subarray(vaultLayout.shareMint, vaultLayout.bump)).equals(shareMint) ||
-    data[vaultLayout.bump] !== vaultBump
+    !new PublicKey(data.subarray(vaultLayout.assetMint, vaultLayout.cashVault)).equals(deployment.assetMint) ||
+    !new PublicKey(data.subarray(vaultLayout.cashVault, vaultLayout.shareMint)).equals(deployment.cashVault) ||
+    !new PublicKey(data.subarray(vaultLayout.shareMint, vaultLayout.bump)).equals(deployment.shareMint) ||
+    data[vaultLayout.bump] !== deployment.vaultBump
   ) {
-    throw new Error('The Devnet vault account bindings do not match this deployment.');
+    throw new Error('The vault account bindings do not match this deployment.');
   }
+  /** 仅已扩展的状态可通过第 137 字节启用自动收回。 Only extended states can enable recall at byte 137. */
+  const active = data.length === strategyVaultStateSize;
+  return { active, autoRecallEnabled: active && (data[vaultLayout.length] & 1) !== 0 };
 }
 
 /**
@@ -132,16 +144,36 @@ function readTokenAccount(address: PublicKey, info: AccountInfo<Buffer> | null, 
  * @returns 同一个已确认 slot 的金库状态和可选的钱包余额。 Vault state and optional wallet balances at the same confirmed slot.
  * @throws RPC 失败、查询取消、观测 slot 不一致或链上账户校验未通过时。 On RPC or cancellation errors, mismatched slots or invalid accounts.
  */
-export async function readDevnetVault(
+export function readDevnetVault(
   walletAddress?: string | null,
   minContextSlot?: number,
   signal?: AbortSignal,
 ): Promise<DevnetVaultState> {
+  return readVaultAccounts(devnetVaultConfig, walletAddress, minContextSlot, signal);
+}
+
+/**
+ * 按同一确认槽读取部署的金库、策略和可选钱包账户。
+ * Read vault, strategy, and optional wallet accounts at the same confirmed slot.
+ *
+ * @param deployment 已核验的同网络金库绑定。 Verified same-network vault bindings.
+ * @param walletAddress 钱包公钥，省略时仅采样金库。 Wallet public key, omitted for a vault-only read.
+ * @param minContextSlot 确认交易之后重新读取所需的最低 slot。 Minimum slot when refreshing after a confirmed transaction.
+ * @param signal 调用方取消读取的可选信号。 Optional caller cancellation signal.
+ */
+export async function readVaultAccounts(
+  deployment: VaultDeployment,
+  walletAddress?: string | null,
+  minContextSlot?: number,
+  signal?: AbortSignal,
+): Promise<DevnetVaultState> {
+  /** 同网络登记的只读 RPC 与地址。 Registered RPC endpoint and addresses for the same network. */
+  const { programId, vaultAddress, cashVault, assetMint, shareMint, rpcUrl } = deployment;
   /** 超时覆盖整个读取流程，并保留调用方的主动取消。 The timeout covers the full read and preserves caller cancellation. */
   const timeout = AbortSignal.timeout(readTimeoutMs);
   const readSignal = signal ? AbortSignal.any([timeout, signal]) : timeout;
   /** 读链以 confirmed 为准，让确认后的页面刷新看到同一笔存入。 Read at confirmed so the post-confirmation refresh can see the deposit. */
-  const rpc = new Connection(devnetRpcUrl, {
+  const rpc = new Connection(rpcUrl, {
     commitment: 'confirmed',
     disableRetryOnRateLimit: true,
     fetch: (input, init) => fetch(input, { ...init, signal: readSignal }),
@@ -149,10 +181,12 @@ export async function readDevnetVault(
 
   /** 规范关联账户是存入指令实际使用的扣款来源。 The canonical ATA is the debit source used by the deposit instruction. */
   const wallet = walletAddress ? new PublicKey(walletAddress) : null;
-  const walletAssetAddress = wallet ? getAssociatedTokenAddressSync(devnetVaultConfig.assetMint, wallet) : null;
+  const walletAssetAddress = wallet ? getAssociatedTokenAddressSync(assetMint, wallet) : null;
   /** 可执行程序、金库身份、托管余额、结算 Mint 和份额供给一起采样。 Sample the executable program, vault identity, custody, settlement mint and share supply together. */
-  const keys = [programId, vaultAddress, cashVault, devnetVaultConfig.assetMint, shareMint];
-  if (walletAssetAddress) keys.push(walletAssetAddress);
+  /** 策略账户和可选钱包账户与现金一同采样，避免跨槽拼接净值。 Read strategy and optional wallet accounts with cash to avoid cross-slot NAV. */
+  const strategyAddresses = vaultStrategyAddresses(programId, vaultAddress);
+  const baseKeys = [programId, vaultAddress, cashVault, assetMint, shareMint, ...vaultStrategyObservationKeys(strategyAddresses)];
+  const keys = walletAssetAddress ? [...baseKeys, walletAssetAddress] : baseKeys;
 
   /** 两个 RPC 请求应用同一个确认级别和最低观测 slot。 Both RPC calls use the same commitment and minimum observation slot. */
   const config = { commitment: 'confirmed', minContextSlot } as const;
@@ -172,11 +206,12 @@ export async function readDevnetVault(
     if (sharesResponse && slot !== sharesResponse.context.slot) continue;
 
     /** 按请求顺序校验程序可执行，并检查金库身份、托管账户和两种 Mint。 Verify the executable program, vault identity, custody, and mints in request order. */
-    const [programInfo, vaultInfo, cashInfo, assetInfo, shareInfo, walletAssetInfo] = vaultResponse.value;
-    if (!programInfo?.executable) throw new Error('The configured Devnet vault program is not executable.');
-    validateVaultAccount(vaultInfo);
+    const [programInfo, vaultInfo, cashInfo, assetInfo, shareInfo] = vaultResponse.value;
+    const walletAssetInfo = walletAssetAddress ? vaultResponse.value[baseKeys.length] : null;
+    if (!programInfo?.executable) throw new Error('The configured vault program is not executable.');
+    const strategyState = validateVaultAccount(vaultInfo, deployment);
     /** 托管账户由金库 PDA 授权，余额以 mockUSDC 最小单位计。 Custody is controlled by the vault PDA and holds mockUSDC base units. */
-    const custody = readTokenAccount(cashVault, cashInfo, devnetVaultConfig.assetMint, vaultAddress);
+    const custody = readTokenAccount(cashVault, cashInfo, assetMint, vaultAddress);
     if (custody.isFrozen) throw new Error('The Devnet custody account is frozen.');
 
     if (
@@ -186,7 +221,7 @@ export async function readDevnetVault(
       throw new Error('The Devnet vault mints do not have the classic SPL layout.');
     }
     /** 两个 Mint 的精度必须与存入指令一致，份额 Mint 的铸造权必须为金库 PDA。 Both mints must match the deposit decimals, and only the vault PDA may issue shares. */
-    const asset = unpackMint(devnetVaultConfig.assetMint, assetInfo, TOKEN_PROGRAM_ID);
+    const asset = unpackMint(assetMint, assetInfo, TOKEN_PROGRAM_ID);
     const share = unpackMint(shareMint, shareInfo, TOKEN_PROGRAM_ID);
     if (
       !asset.isInitialized || !share.isInitialized || asset.decimals !== tokenDecimals ||
@@ -200,7 +235,7 @@ export async function readDevnetVault(
     if (wallet && walletAssetAddress && sharesResponse) {
       /** 缺少关联账户时，可存 mockUSDC 为零。 A missing associated token account has zero depositable mockUSDC. */
       const walletAsset = walletAssetInfo
-        ? readTokenAccount(walletAssetAddress, walletAssetInfo, devnetVaultConfig.assetMint, wallet)
+        ? readTokenAccount(walletAssetAddress, walletAssetInfo, assetMint, wallet)
         : null;
       /** 同一个钱包的份额最小单位数累加，不经过浮点数。 Sum the wallet's share base units without floating-point conversion. */
       let sharesRaw = 0n;
@@ -227,8 +262,12 @@ export async function readDevnetVault(
         receivableAssetBalanceRaw: walletAsset?.isFrozen ? null : walletAsset?.amount ?? 0n,
       };
     }
+    /** 与现金余额同槽解码，空策略保留纯现金定价。 Decode at the cash balance's slot, retaining cash pricing for legacy vaults. */
+    const strategy = decodeVaultStrategy(deployment, strategyState, custody.amount, strategyAddresses,
+      vaultResponse.value.slice(5, baseKeys.length));
     readSignal.throwIfAborted();
-    return { slot, observedAt: new Date().toISOString(), cashRaw: custody.amount, totalSharesRaw: share.supply, wallet: balances };
+    return { slot, observedAt: new Date().toISOString(), cashRaw: custody.amount,
+      totalSharesRaw: share.supply, wallet: balances, ...strategy };
   }
   throw new Error('Could not observe the Devnet vault and wallet at the same confirmed slot.');
 }

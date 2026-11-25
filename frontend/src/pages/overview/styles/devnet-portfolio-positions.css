@@ -1,0 +1,102 @@
+/* 同类余额与仓位各占一格，宽度不足时自然换行。 */
+/* Give each balance or position group its own card and let the grid wrap on narrow screens. */
+.devnet-portfolio {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.15rem;
+}
+
+.devnet-portfolio__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 1rem;
+}
+
+.devnet-portfolio__header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 680;
+}
+
+.devnet-portfolio__header button {
+  min-height: 2.5rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.devnet-portfolio__header button:enabled {
+  cursor: pointer;
+}
+
+.devnet-portfolio__header button:enabled:hover {
+  border-color: var(--accent);
+}
+
+.devnet-portfolio__header button:disabled {
+  opacity: 0.62;
+}
+
+.devnet-portfolio__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr));
+  gap: 0.75rem;
+}
+
+.portfolio-card {
+  display: grid;
+  align-content: start;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+}
+
+.portfolio-card h3,
+.portfolio-card p,
+.portfolio-card dl,
+.portfolio-card dd {
+  margin: 0;
+}
+
+.portfolio-card h3 {
+  font-size: 1rem;
+  font-weight: 640;
+}
+
+.portfolio-card dl {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.portfolio-card dt,
+.portfolio-card__status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.portfolio-card dd {
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.portfolio-card__status--error {
+  color: #ffb7b7;
+}
+
+.portfolio-card__link {
+  width: fit-content;
+  color: var(--accent);
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}

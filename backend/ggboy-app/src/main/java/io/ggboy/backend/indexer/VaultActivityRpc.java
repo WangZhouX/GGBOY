@@ -95,17 +95,33 @@ class VaultActivityRpc implements AutoCloseable {
      * @throws IllegalStateException RPC 请求失败或返回无效页。 The RPC call fails or returns an invalid page.
      */
     List<VaultActivityData.Signature> listSignatures(String programId, String before) {
-        SolanaAddressUtil.requirePublicKey(programId, "programId");
+        return listSignatures(programId, before, null);
+    }
 
-        /** 签名查询选项，包含最终确认级别与单页上限。 Signature query options with finalized commitment and a page limit. */
+    /**
+     * 在不早于指定账户观测的最终确认上下文中读取历史签名页。
+     * Reads signature history from a finalized context at least as new as the specified account observation.
+     *
+     * @param address 查询交易消息中引用的公钥。 Public key referenced by the transaction message.
+     * @param before 排除的上一页签名，首页为空。 Exclusive last signature of the previous page, or null.
+     * @param minContextSlot 最低可接受的 finalized 观测 slot，为空则不限制。 Minimum acceptable finalized context slot, or null for no bound.
+     * @return 最多一百条经过校验的签名。 Up to one hundred verified signatures.
+     */
+    List<VaultActivityData.Signature> listSignatures(String address, String before, BigInteger minContextSlot) {
+        SolanaAddressUtil.requirePublicKey(address, "address");
+
+        /** 签名查询选项，包含最终确认级别、页大小和观测下限。 Signature query options with finalized commitment, page size and optional observation floor. */
         ObjectNode options = json.createObjectNode().put("commitment", COMMITMENT).put("limit", PAGE_SIZE);
+        if (minContextSlot != null) {
+            options.put("minContextSlot", UnsignedIntegerUtil.requireUint64(minContextSlot));
+        }
         if (before != null) {
             SolanaAddressUtil.requireSignature(before, "before");
             options.put("before", before);
         }
 
         /** RPC 签名页，保持原有从新到旧的顺序。 RPC signature page in its original newest-first order. */
-        JsonNode result = call("getSignaturesForAddress", json.getNodeFactory().stringNode(programId), options);
+        JsonNode result = call("getSignaturesForAddress", json.getNodeFactory().stringNode(address), options);
         if (!result.isArray() || result.size() > PAGE_SIZE) {
             throw new IllegalStateException("Devnet RPC returned an invalid signature page");
         }
@@ -185,7 +201,7 @@ class VaultActivityRpc implements AutoCloseable {
      * @param signature 从最终确认签名页发现的记录。 Entry from finalized signature discovery.
      * @return 通过匹配校验的原始 RPC 结果。 Raw RPC result after identity and status verification.
      */
-    private JsonNode getSuccessfulTransaction(VaultActivityData.Signature signature) {
+    JsonNode getSuccessfulTransaction(VaultActivityData.Signature signature) {
         if (signature.failed()) {
             throw new IllegalArgumentException("Only successful finalized transactions can be fetched for activity indexing");
         }
@@ -268,6 +284,30 @@ class VaultActivityRpc implements AutoCloseable {
             options.put("minContextSlot", UnsignedIntegerUtil.requireUint64(minContextSlot));
         }
         return call("getMultipleAccounts", keys, options);
+    }
+
+    /**
+     * 按借贷账户首字段的市场公钥读取同一最终确认 slot 的市场明细。
+     * Reads market detail accounts at one finalized slot by matching the first field of lending accounts.
+     *
+     * @param programId 拥有明细账户的借贷程序公钥。 Lending program public key owning the detail accounts.
+     * @param market 账户 Anchor 标识之后保存的市场公钥。 Market public key stored directly after each account discriminator.
+     * @param minContextSlot 不允许落后于该 slot，允许为空。 Minimum allowed slot, or null.
+     * @return 含上下文及原始账户数组的 RPC 结果。 RPC result with context and raw accounts.
+     */
+    JsonNode getLendingMarketAccounts(String programId, String market, BigInteger minContextSlot) {
+        SolanaAddressUtil.requirePublicKey(programId, "lending program");
+        SolanaAddressUtil.requirePublicKey(market, "lending market");
+
+        // 市场公钥紧随常规 Anchor 账户的 8 字节判别符，RPC 端先排除其他市场。
+        // The market key follows the standard eight-byte Anchor discriminator, filtering other markets at the node.
+        ObjectNode options = json.createObjectNode()
+                .put("commitment", COMMITMENT).put("encoding", "base64").put("withContext", true);
+        options.putArray("filters").addObject().putObject("memcmp").put("offset", 8).put("bytes", market);
+        if (minContextSlot != null) {
+            options.put("minContextSlot", UnsignedIntegerUtil.requireUint64(minContextSlot));
+        }
+        return call("getProgramAccounts", json.getNodeFactory().stringNode(programId), options);
     }
 
     /**

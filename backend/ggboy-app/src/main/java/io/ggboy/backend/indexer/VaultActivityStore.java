@@ -8,6 +8,9 @@ import io.ggboy.backend.entity.ChainEventParticipantDO;
 import io.ggboy.backend.entity.VaultDO;
 import io.ggboy.backend.indexer.VaultActivityData.Event;
 import io.ggboy.backend.indexer.VaultActivityData.Signature;
+import io.ggboy.backend.indexer.VaultActivityData.StrategyAction;
+import io.ggboy.backend.indexer.VaultActivityData.StrategyEvent;
+import io.ggboy.backend.indexer.VaultActivityData.VaultEvent;
 import io.ggboy.backend.mapper.AssetMintMapper;
 import io.ggboy.backend.mapper.ChainEventAssetMapper;
 import io.ggboy.backend.mapper.ChainEventMapper;
@@ -27,8 +30,8 @@ import java.util.stream.Collectors;
 import static io.ggboy.backend.indexer.ActivityIndexStore.NETWORK;
 
 /**
- * 将已解析的 Devnet 金库存赎记录和续扫检查点原子地保存到现有活动表。
- * Atomically persists decoded Devnet deposits and redemptions and the scan checkpoint in the existing activity tables.
+ * 将 Devnet 金库存赎、策略活动与续扫检查点原子地保存到现有活动表。
+ * Atomically persists Devnet vault deposits, redemptions, strategy activity, and the checkpoint in the existing tables.
  */
 @Service
 public class VaultActivityStore {
@@ -41,7 +44,7 @@ public class VaultActivityStore {
     private final AssetMintMapper mintMapper;
     /** 读写单条已索引的业务事件。 Reads and writes individual indexed business events. */
     private final ChainEventMapper eventMapper;
-    /** 保存事件投资者的参与记录。 Stores the investor's participation in each event. */
+    /** 保存投资者、策略管理者和受益金库的参与记录。 Stores participation by investors, strategy managers and beneficiary vaults. */
     private final ChainEventParticipantMapper participantMapper;
     /** 保存事件涉及的实际资产变动。 Stores actual asset movements recorded by each event. */
     private final ChainEventAssetMapper assetMapper;
@@ -99,12 +102,12 @@ public class VaultActivityStore {
      * @param expected 本次扫描看到的旧边界，首次同步为空。 Previous frontier observed by this scan, or null on the first scan.
      * @param current 经过最终确认的交易签名和 slot。 Finalized transaction signature and slot.
      * @param blockTime RPC 提供的区块时间，可为空。 RPC block timestamp, nullable.
-     * @param events 已校验来源的 Anchor 存赎事件，失败交易或无匹配事件时为空表。 Provenanced Anchor deposit and redeem events, empty for failed or unrelated transactions.
+     * @param events 已校验来源的金库 Anchor 事件，失败交易或无匹配事件时为空表。 Provenanced vault Anchor events, empty for failed or unrelated transactions.
      * @return 成功推进时为真，其他实例已推进后返回假以重新扫描。 True when committed, or false when a concurrent advance requires a fresh scan.
      */
     @Transactional
     public boolean commit(
-            String programId, Signature expected, Signature current, OffsetDateTime blockTime, List<Event> events
+            String programId, Signature expected, Signature current, OffsetDateTime blockTime, List<VaultEvent> events
     ) {
         if (current.failed() && !events.isEmpty()) {
             throw new IllegalArgumentException("A failed finalized transaction cannot create vault activity");
@@ -120,7 +123,7 @@ public class VaultActivityStore {
 
         /** 父交易是否已为本次处理准备好；仅存在符合条件的事件时才需要父记录。 Whether the parent is ready; only transactions with eligible events need a parent row. */
         boolean parentReady = false;
-        for (Event event : events) {
+        for (VaultEvent event : events) {
             /** 事件所引用的 Devnet 金库登记。 Devnet vault registration referenced by the event. */
             VaultDO vault = vaultMapper.selectByNetworkAndAddress(NETWORK, event.vault());
             if (vault == null || !programId.equals(vault.programId())) {
@@ -138,7 +141,10 @@ public class VaultActivityStore {
                 indexStore.ensureParent(current, blockTime, indexedAt);
                 parentReady = true;
             }
-            insertEvent(programId, key, event);
+            switch (event) {
+                case Event investorEvent -> insertInvestorEvent(programId, key, investorEvent);
+                case StrategyEvent strategyEvent -> insertStrategyEvent(programId, key, strategyEvent);
+            }
         }
         return true;
     }
@@ -148,11 +154,26 @@ public class VaultActivityStore {
      * Verifies that a registered vault event uses both bound mints.
      *
      * @param vault 匹配网络和程序的金库登记。 Vault registration matching the network and program.
-     * @param event 本笔交易中的链上存赎事件。 On-chain deposit or redemption event.
+     * @param event 本笔交易中的链上金库事件。 On-chain vault activity in this transaction.
      * @throws IllegalStateException Mint 不匹配时回滚，以便修复配置后重试。 If the binding mismatches, roll back so configuration can be fixed and retried.
      */
-    private void checkMintBindings(VaultDO vault, Event event) {
-        if (!vault.quoteMint().equals(event.assetMint()) || !vault.shareMint().equals(event.shareMint())) {
+    private void checkMintBindings(VaultDO vault, VaultEvent event) {
+        /** 已登记结算 Mint，所有策略方向至少有一条腿使用。 Registered settlement mint used in at least one leg of any strategy action. */
+        String quoteMint = vault.quoteMint();
+        /** 校验存赎、换币或出借资金变动的 Mint 是否与当前金库登记一致。 Validate investor, swap or lending asset bindings against the vault registry. */
+        boolean matches = switch (event) {
+            case Event investorEvent -> quoteMint.equals(investorEvent.assetMint()) && vault.shareMint().equals(investorEvent.shareMint());
+            case StrategyEvent strategyEvent -> {
+                if (strategyEvent.action() == StrategyAction.SWAP) {
+                    /** 兑换只允许登记的策略和结算资产互换。 Only the registered strategy and settlement assets may be swapped. */
+                    String strategyMint = vault.strategyMint();
+                    yield (quoteMint.equals(strategyEvent.inputMint()) && strategyEvent.outputMint().equals(strategyMint))
+                            || (quoteMint.equals(strategyEvent.outputMint()) && strategyEvent.inputMint().equals(strategyMint));
+                }
+                yield quoteMint.equals(strategyEvent.inputMint()) && quoteMint.equals(strategyEvent.outputMint());
+            }
+        };
+        if (!matches) {
             throw new IllegalStateException("Vault event mints differ from Devnet vault registration: " + event.vault());
         }
     }
@@ -165,7 +186,7 @@ public class VaultActivityStore {
      * @param key 本次写入的签名和日志位置。 Signature and original log position being written.
      * @param event 已验证的事件地址、类型和整数金额。 Validated on-chain event addresses, action and integer amounts.
      */
-    private void insertEvent(String programId, ChainEventKey key, Event event) {
+    private void insertInvestorEvent(String programId, ChainEventKey key, Event event) {
         /** 链上事件涉及的资产和份额 Mint 精度登记。 Registered precision for the asset and share mints from the event. */
         Map<String, AssetMintDO> mints = mintMapper.selectByNetworkAndMintAddresses(
                         NETWORK, List.of(event.assetMint(), event.shareMint())).stream()
@@ -202,6 +223,55 @@ public class VaultActivityStore {
                 assetMapper.insert(new ChainEventAssetDO(NETWORK, key.signature(), key.eventIndex(), 1,
                         asset.mintAddress(), asset.decimals(), event.assetAmount(), "ASSET_OUT"));
             }
+        }
+    }
+
+    /**
+     * 写入策略动作和实际资金腿，方向以金库托管为参照。
+     * Writes the strategy action and executed asset movements in directions relative to vault custody.
+     *
+     * @param programId 发出事件的金库程序公钥。 Public key of the emitting vault program.
+     * @param key 交易签名和原始日志序号。 Transaction signature and original log index.
+     * @param event 已校验金库与 Mint 绑定的策略成交。 Executed strategy event with validated vault and mint bindings.
+     */
+    private void insertStrategyEvent(String programId, ChainEventKey key, StrategyEvent event) {
+        /** 出借和收回只查询一次结算 Mint，换币同时查询另一侧 Mint。 Query settlement once for lending and recall, and fetch both mints for swaps. */
+        List<String> addresses = event.action() == StrategyAction.SWAP
+                ? List.of(event.inputMint(), event.outputMint()) : List.of(event.inputMint());
+        /** 从资产登记取得回执使用的 Mint 精度。 Mint decimals for the receipt are provided by the asset registry. */
+        Map<String, AssetMintDO> mints = mintMapper.selectByNetworkAndMintAddresses(NETWORK, addresses).stream()
+                .collect(Collectors.toMap(AssetMintDO::mintAddress, Function.identity()));
+        /** 本次两侧资金使用的资产记录。同一 Mint 时两者相同。 Input and output asset registrations. Both refer to the same record for one-mint movements. */
+        AssetMintDO input = mints.get(event.inputMint());
+        AssetMintDO output = mints.get(event.outputMint());
+        if (input == null || output == null) {
+            throw new IllegalStateException("Missing Devnet mint metadata for strategy vault: " + event.vault());
+        }
+
+        /** 与现有策略活动筛选兼容的稳定业务类型。 Stable event type accepted by the existing strategy activity filter. */
+        String eventType = switch (event.action()) {
+            case SWAP -> "STRATEGY_SWAP";
+            case LEND -> "STRATEGY_LEND";
+            case RECALL -> "STRATEGY_RECALL";
+        };
+        eventMapper.insert(new ChainEventDO(NETWORK, key.signature(), key.eventIndex(), programId, "VAULT", eventType,
+                event.vault()));
+        participantMapper.insert(new ChainEventParticipantDO(NETWORK, key.signature(), key.eventIndex(), event.manager(),
+                "MANAGER"));
+        participantMapper.insert(new ChainEventParticipantDO(NETWORK, key.signature(), key.eventIndex(), event.vault(),
+                "BENEFICIARY"));
+
+        // 一笔资金分配只有实际发生的转出或转入，避免将同一结算金额重复记成两条腿。
+        // A cash allocation has one executed transfer. Avoid recording the same settlement amount twice.
+        if (event.action() != StrategyAction.RECALL) {
+            assetMapper.insert(new ChainEventAssetDO(NETWORK, key.signature(), key.eventIndex(), 0,
+                    input.mintAddress(), input.decimals(), event.inputAmount(), "ASSET_OUT"));
+        }
+        if (event.action() != StrategyAction.LEND) {
+            /** 换币先展示扣款再展示到账。收回只有一条资产腿，编号从零开始。 Swap shows the payment first. Recall has one leg starting at zero. */
+            int legIndex = event.action() == StrategyAction.SWAP ? 1 : 0;
+            assetMapper.insert(new ChainEventAssetDO(NETWORK, key.signature(), key.eventIndex(), legIndex,
+                    output.mintAddress(), output.decimals(), event.outputAmount(), "ASSET_IN"));
         }
     }
 }

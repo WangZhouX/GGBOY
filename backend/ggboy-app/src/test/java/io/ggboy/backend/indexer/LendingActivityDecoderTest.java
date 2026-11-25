@@ -3,6 +3,7 @@ package io.ggboy.backend.indexer;
 import io.ggboy.backend.indexer.LendingActivityDecoder.Action;
 import io.ggboy.backend.indexer.LendingActivityDecoder.BorrowerEvent;
 import io.ggboy.backend.indexer.LendingActivityDecoder.Event;
+import io.ggboy.backend.indexer.LendingActivityDecoder.SupplyDepositEvent;
 import io.ggboy.backend.indexer.LendingActivityDecoder.SupplyWithdrawalEvent;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +41,7 @@ class LendingActivityDecoderTest {
     /** 提取测试样例按新事件 Borsh 布局独立生成，使用真实市场的 mockUSDC Mint。 Withdrawal fixture generated independently from the new Borsh layout using the registered mockUSDC mint. */
     private static final String DEBT_MINT = "62vB22oh8fjXtitpKX3nLKyk9J7CVKb4ueKZcDGP1o1X";
     private static final String SUPPLY_WITHDRAWAL = "3FR8casB5Rn8lfStEB1ermgiJTU7YDIBEs+0Lz2JHO068cKn9iyBAyM/pNV/WCtzgD0Hsxt7dEj7jV44LFOc0QzGBTGSnr0kSsgjVcLp/NEmGWJiz4gHlIxRkD+sqwW2gOk5p+bf8taAhB4AAAAAAGDjFgAAAAAAQEtMAAAAAAA=";
-    /** 已有存入出借资金日志必须与提取事件区分。 An existing deposit-to-pool log must not be interpreted as a withdrawal. */
+    /** 与提取金额和份额顺序不同的出借存入样例。 Supply deposit fixture with a different amount and shares ordering than withdrawal. */
     private static final String SUPPLY_DEPOSIT = "haVXxSw0RoL8lfStEB1ermgiJTU7YDIBEs+0Lz2JHO068cKn9iyBAyM/pNV/WCtzgD0Hsxt7dEj7jV44LFOc0QzGBTGSnr0kSsgjVcLp/NEmGWJiz4gHlIxRkD+sqwW2gOk5p+bf8tZg4xYAAAAAAICEHgAAAAAA";
     /** 1 tSOL 对应 9 位小数的最小单位数。 One tSOL in base units with nine decimal places. */
     private static final long ONE_TSOL_RAW = 1_000_000_000L;
@@ -92,10 +93,10 @@ class LendingActivityDecoderTest {
                 .stream().map(Event::logIndex).toList());
     }
 
-    /** 同笔交易中区分出借提取、借款和忽略的存入日志，保持回执序号稳定。 Distinguishes supply withdrawal, borrowing, and ignored deposit logs while preserving receipt indexes. */
+    /** 同笔交易中区分出借存入、提取和借款，保持回执序号稳定。 Distinguishes supply deposit, withdrawal, and borrowing within one transaction while preserving receipt indexes. */
     @Test
-    void indexesSupplyWithdrawalAlongsideBorrowingWithoutConflatingShareAndPayoutAmounts() {
-        /** 一条交易依次触发三种事件，其中两种分别转为活动。 The transaction emits three event kinds, two of which become separate activities. */
+    void indexesSupplyDepositAndWithdrawalAlongsideBorrowing() {
+        /** 一条交易依次触发三种不同活动。 One transaction emits three distinct activities. */
         List<String> logs = List.of(
                 "Program " + PROGRAM + " invoke [1]",
                 "Program data: " + SUPPLY_DEPOSIT,
@@ -106,18 +107,70 @@ class LendingActivityDecoderTest {
                 "Program " + PROGRAM + " invoke [1]",
                 "Program data: " + BORROW,
                 "Program " + PROGRAM + " success");
-        /** 已核验的两条活动，按原始日志序号排列。 Two verified activities in their original log order. */
+        /** 已核验的三条活动，按原始日志序号排列。 Three verified activities in their original log order. */
         List<Event> events = LendingActivityDecoder.decode(PROGRAM, logs, Set.of(BORROWER));
-        assertEquals(List.of(4, 7), events.stream().map(Event::logIndex).toList());
+        assertEquals(List.of(1, 4, 7), events.stream().map(Event::logIndex).toList());
+        /** 出借实际入池金额先于新增份额，方向为转入。 The actual deposit precedes credited shares and the movement flows into the pool. */
+        SupplyDepositEvent deposit = assertInstanceOf(SupplyDepositEvent.class, events.getFirst());
+        assertEquals(new SupplyDepositEvent(1, MARKET, BORROWER, DEBT_MINT, BigInteger.valueOf(1_500_000),
+                BigInteger.valueOf(2_000_000)), deposit);
+        assertEquals("LENDING_SUPPLY", deposit.action().eventType());
+        assertEquals("SUPPLIER", deposit.action().participantRole());
+        assertEquals("ASSET_IN", deposit.action().movement());
+        assertEquals(false, deposit.action().usesCollateralMint());
         /** 同一签名者在不同事件中具有独立的业务角色。 A single signer can have different roles in separate events. */
-        SupplyWithdrawalEvent withdrawal = assertInstanceOf(SupplyWithdrawalEvent.class, events.getFirst());
+        SupplyWithdrawalEvent withdrawal = assertInstanceOf(SupplyWithdrawalEvent.class, events.get(1));
         assertEquals(new SupplyWithdrawalEvent(4, MARKET, BORROWER, DEBT_MINT, BigInteger.valueOf(2_000_000),
                 BigInteger.valueOf(1_500_000), BigInteger.valueOf(5_000_000)), withdrawal);
         assertEquals("LENDING_WITHDRAW_SUPPLY", withdrawal.action().eventType());
         assertEquals("SUPPLIER", withdrawal.action().participantRole());
         assertEquals("ASSET_OUT", withdrawal.action().movement());
         assertEquals(false, withdrawal.action().usesCollateralMint());
-        assertEquals("BORROWER", events.getLast().action().participantRole());
+        assertEquals("BORROWER", assertInstanceOf(BorrowerEvent.class, events.getLast()).action().participantRole());
+    }
+
+    /** 金库 CPI 以及失败的出借不产生普通钱包的出借活动。 Vault CPI and reverted calls do not produce ordinary wallet supply activities. */
+    @Test
+    void skipsNestedAndRevertedSupplyDeposits() {
+        /** 金库包裹一次 CPI 出借，随后模拟失败再成功的顶层调用。 A vault wraps one supply CPI, followed by failed and successful top-level fixtures. */
+        List<String> logs = List.of(
+                "Program " + EXTERNAL + " invoke [1]",
+                "Program " + PROGRAM + " invoke [2]",
+                "Program data: " + SUPPLY_DEPOSIT,
+                "Program " + PROGRAM + " success",
+                "Program " + EXTERNAL + " success",
+                "Program " + PROGRAM + " invoke [1]",
+                "Program data: " + SUPPLY_DEPOSIT,
+                "Program " + PROGRAM + " failed: custom program error: 0x1",
+                "Program " + PROGRAM + " invoke [1]",
+                "Program data: " + SUPPLY_DEPOSIT,
+                "Program " + PROGRAM + " success");
+        assertEquals(List.of(9), LendingActivityDecoder.decode(PROGRAM, logs, Set.of(BORROWER))
+                .stream().map(Event::logIndex).toList());
+    }
+
+    /** 存入事件严格验证签名、长度和非零数量，金额无符号读取。 Deposit verifies signer, exact length, and positive amounts while preserving unsigned values. */
+    @Test
+    void rejectsInvalidSupplyDepositsAndRetainsUnsignedAmount() {
+        assertThrows(IllegalStateException.class,
+                () -> LendingActivityDecoder.decode(PROGRAM, topLevelLogs(SUPPLY_DEPOSIT), Set.of(EXTERNAL)));
+        /** 固定布局中入池资产和新增份额位于 104 和 112 字节。 Deposit and credited shares start at byte offsets 104 and 112. */
+        byte[] data = Base64.getDecoder().decode(SUPPLY_DEPOSIT);
+        assertThrows(IllegalStateException.class, () -> LendingActivityDecoder.decode(PROGRAM,
+                topLevelLogs(Base64.getEncoder().encodeToString(Arrays.copyOf(data, data.length - 1))), Set.of(BORROWER)));
+        /** 分别测试零入池额、零份额及最大的有效 u64 入池额。 Test zero assets, zero shares, and the maximum valid u64 deposited amount. */
+        ByteBuffer fields = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        fields.putLong(104, 0L);
+        assertThrows(IllegalStateException.class,
+                () -> LendingActivityDecoder.decode(PROGRAM, topLevelLogs(Base64.getEncoder().encodeToString(data)), Set.of(BORROWER)));
+        fields.putLong(104, -1L).putLong(112, 0L);
+        assertThrows(IllegalStateException.class,
+                () -> LendingActivityDecoder.decode(PROGRAM, topLevelLogs(Base64.getEncoder().encodeToString(data)), Set.of(BORROWER)));
+        fields.putLong(112, 1L);
+        /** 最大 u64 保持为正十进制整数。 The maximum u64 remains an exact positive decimal integer. */
+        SupplyDepositEvent event = assertInstanceOf(SupplyDepositEvent.class, LendingActivityDecoder.decode(PROGRAM,
+                topLevelLogs(Base64.getEncoder().encodeToString(data)), Set.of(BORROWER)).getFirst());
+        assertEquals(new BigInteger("18446744073709551615"), event.amountRaw());
     }
 
     /** 提取事件拒绝无签名、布局截断或零金额，并保留最大无符号到账量。 Withdrawal rejects unsigned, truncated, or zero-payout data and preserves the largest unsigned payout. */
@@ -139,8 +192,8 @@ class LendingActivityDecoderTest {
                 () -> LendingActivityDecoder.decode(PROGRAM, topLevelLogs(Base64.getEncoder().encodeToString(data)), Set.of(BORROWER)));
         payout.putLong(112, -1L);
         /** u64 最大值必须保持为正十进制整数。 The maximum u64 value remains a positive decimal integer. */
-        Event largest = LendingActivityDecoder.decode(PROGRAM,
-                topLevelLogs(Base64.getEncoder().encodeToString(data)), Set.of(BORROWER)).getFirst();
+        SupplyWithdrawalEvent largest = assertInstanceOf(SupplyWithdrawalEvent.class, LendingActivityDecoder.decode(PROGRAM,
+                topLevelLogs(Base64.getEncoder().encodeToString(data)), Set.of(BORROWER)).getFirst());
         assertEquals(new BigInteger("18446744073709551615"), largest.amountRaw());
     }
 
@@ -148,7 +201,8 @@ class LendingActivityDecoderTest {
     @Test
     void retainsUnsignedAmountPrecision() {
         /** 用全 1 位模式模拟最大无符号 u64 最小单位金额。 An all-ones bit pattern encodes the largest u64 amount in base units. */
-        Event event = LendingActivityDecoder.decode(PROGRAM, topLevelLogs(encodedFixture(0, -1L)), Set.of(BORROWER)).getFirst();
+        BorrowerEvent event = assertInstanceOf(BorrowerEvent.class,
+                LendingActivityDecoder.decode(PROGRAM, topLevelLogs(encodedFixture(0, -1L)), Set.of(BORROWER)).getFirst());
         assertEquals(new BigInteger("18446744073709551615"), event.amountRaw());
     }
 

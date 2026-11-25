@@ -20,11 +20,11 @@ export function valueSupplyShares(pool: SupplyAccounting, sharesRaw: bigint): bi
  * 确定钱包当前可以提取的最大份额和实际整数代币金额。
  * Determine the maximum currently withdrawable shares and exact integer token payout for this wallet.
  *
- * @param pool 同槽验证的池托管、出借账本、未偿本金和钱包份额。 Validated custody, supply ledger, outstanding principal, and wallet shares from the same slot.
+ * @param pool 同槽验证的池托管、出借账本、未偿债务和钱包份额。 Validated custody, supply ledger, outstanding debt, and wallet shares from the same slot.
  * @returns 冻结、空仓或最小到账为零时均为零，否则返回份额和借款 Mint 最小单位数。 Zero when frozen, empty, or payout rounds to zero; otherwise share and debt mint base units.
  */
 export function getSupplyWithdrawalLimit(pool: SupplyAccounting) {
-  /** 账外现金不增加份额持有人的权益，未偿本金仍然计在池资产中。 Unrecorded custody cash adds no entitlement, while unpaid principal remains recorded as a pool asset. */
+  /** 账外现金不增加份额持有人的权益，未偿债务及应计利息仍计入池资产。 Unrecorded custody cash adds no entitlement. Unpaid debt and accrued interest remain in the pool's book assets. */
   const { cashRaw, totalDebtRaw, accountedAssetsRaw, totalSharesRaw, sharesRaw } = pool;
   const recordedCashRaw = accountedAssetsRaw - totalDebtRaw;
   const availableCashRaw = cashRaw < recordedCashRaw ? cashRaw : recordedCashRaw;

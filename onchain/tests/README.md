@@ -203,6 +203,9 @@ node tests/borrow-lending-market.mjs "$GGBOY_LENDING_TEST_ADMIN_FILE" "$GGBOY_LE
 - 通过抵押、借款、部分还款、全额还款和取回抵押，核对个人本金、市场合计本金及两个托管余额。
 - 测试管理员发布价格、缺价时拒绝借款、抵押和现金上限、超过额度后的原子回滚，以及无债仓位取回抵押。
 - 借款后仍可继续出借，已借出的本金继续为份额记账提供会计覆盖。
+- 将价格降到恰好达到 80% 清算阈值，核对拒绝和回滚；继续降价，验证第三方部分清算、最低到账量、代偿上限、借款人禁止自我清算和规范代币账户。
+- 验证抵押品价值暴跌后的坏账冲销、抵押零头归借款人，以及双零清算冲销不会转账。逐项核对实际事件、池资产、总债务、原有池份额和未入账的托管现金。
+- 清偿旧债务后启用计息，验证同一清算指令对扩展账本正确扣减归一化债务。核对清算人的实际代偿和到账、池记账现金、原有出借份额以及池资产会计等式。
 
 ## Localnet 提取出借资金
 
@@ -238,4 +241,50 @@ node tests/withdraw-lending-supply.mjs "$GGBOY_WITHDRAW_ADMIN" "$GGBOY_WITHDRAW_
 - 提取到流动性上限后，借款人归还本金，再用所有剩余份额取回资金。逐笔核对事件中的注销份额、实际到账与剩余份额。最后总份额与总债务均为零，未记账的 7 mockUSDC 留在托管。
 - 验证零输入、超份额、超流动性、最低到账、错误签名人、错误接收账户、错配借款总账和真实 SPL Token 冻结转账。失败后逐字节核对业务账户没有变化。
 
+## Localnet 策略管理
+
+[strategy-vault.mjs](strategy-vault.mjs) 在新账本上部署两份程序的当前构建，创建同一组测试 Mint，并使用独立的管理员、策略管理者、投资者与借款人钱包。
+
+从 `onchain/` 构建并启动独立验证器。
+
+```bash
+anchor build --ignore-keys
+GGBOY_STRATEGY_TEST_DIR="$(mktemp -d -t ggboy-strategy.XXXXXX)"
+GGBOY_STRATEGY_TEST_ADMIN="$GGBOY_STRATEGY_TEST_DIR/admin-keypair.json"
+solana-keygen new --silent --no-bip39-passphrase -o "$GGBOY_STRATEGY_TEST_ADMIN"
+GGBOY_STRATEGY_VAULT_PROGRAM=$(node -p "require('./target/idl/ggboy_vault.json').address")
+GGBOY_STRATEGY_LENDING_PROGRAM=$(node -p "require('./target/idl/ggboy_lending.json').address")
+printf '%s\n' "$GGBOY_STRATEGY_TEST_ADMIN"
+solana-test-validator --bind-address 127.0.0.1 --rpc-port 44119 --faucet-port 44121 --gossip-port 44122 \
+  --dynamic-port-range 44123-44199 --ledger "$GGBOY_STRATEGY_TEST_DIR/ledger" \
+  --upgradeable-program "$GGBOY_STRATEGY_VAULT_PROGRAM" target/deploy/ggboy_vault.so "$GGBOY_STRATEGY_TEST_ADMIN" \
+  --upgradeable-program "$GGBOY_STRATEGY_LENDING_PROGRAM" target/deploy/ggboy_lending.so "$GGBOY_STRATEGY_TEST_ADMIN"
+```
+
+另开终端进入 `onchain/`。把管理员文件路径替换为上一步打印的路径。
+
+```bash
+GGBOY_STRATEGY_TEST_ADMIN=/tmp/ggboy-strategy.XXXXXX/admin-keypair.json
+GGBOY_STRATEGY_TEST_RPC=http://127.0.0.1:44119
+solana --url "$GGBOY_STRATEGY_TEST_RPC" --keypair "$GGBOY_STRATEGY_TEST_ADMIN" --commitment finalized airdrop 10
+npm --prefix tests ci
+node tests/strategy-vault.mjs "$GGBOY_STRATEGY_TEST_ADMIN" "$GGBOY_STRATEGY_TEST_RPC"
+```
+
+- 原有现金金库在启用策略前仍能按原指令存入。调仓将 20 mockUSDC 换成 0.2 tSOL，核对两种实际余额及 `VaultStrategyAction` 事件。启用策略后，省略或替换估值账户会被拒绝。二次存入 25 mockUSDC 仍按总净值取得 25 GG-V。
+- 管理者将 30 mockUSDC 分配到借贷池，核对份额归金库 PDA。借款人借出 20 mockUSDC 后只能收回 10，验证超出可用流动性和金库现金不足的赎回都回滚。
+- 借款人还款后，管理者收回余款，再把策略持仓兑换回现金。外部转入量按测试价格向下舍入为零时，由管理者清理后才可结算最后份额。投资者全部赎回后金库现金、策略资产、池内份额和 GG-V 总供给同时归零。
+- 新策略金库保留原 137 字节并追加自动收回功能位。管理者调用启用指令被拒绝，原金库管理员重复调用保持全账户字节一致。
+- 自动收回场景重新存入 100 mockUSDC，出借 40，借款人借出 35。金库现金 60，池里可提 5。赎回 66 会回滚，赎回 63 恰好收回 3。还款前剩余可提 2，拒绝赎回 3。借款人还款后，由管理员给仍有 37 池份额的账本启用计息，核对原字段不变。最后一次赎回走扩展后的账本，同时清空金库出借份额和 GG-V 供给，无需策略管理者签名。
+- 冻结投资者收款账户，确认借贷 CPI 成功后，支付失败仍会回滚收回、份额销毁及余额变动。
+- 验证非管理者、最低到账保护和出借限额。失败前后逐字节对照业务账户。
+
 [返回链上工作区](../README.md)
+
+## Localnet 可选计息
+
+复用独立借贷市场验证器和临时管理员密钥，在借贷生命周期命令末尾传入 `--interest`。测试先验证旧版本金结算，随后清偿旧债务并启用固定利率。它等待链上时钟越过首个完整的计息分钟，再校验新旧债务约束、实际还款、利息收益以及出借人取回资金。启用标志的测试会改变本地市场的账户布局，请在新启动的独立 Localnet 账本运行。
+
+```bash
+node tests/borrow-lending-market.mjs "$GGBOY_LENDING_TEST_ADMIN_FILE" "$GGBOY_LENDING_TEST_RPC_URL" --interest
+```

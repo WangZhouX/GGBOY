@@ -136,7 +136,7 @@ export function quoteLendingSupply(position: DevnetLendingSupply, assetsRaw: big
   validateAmount(assetsRaw);
   if (assetsRaw > position.walletAssetRaw) throw new LendingSupplyError('insufficientAsset');
 
-  /** 按池的已记账资产定价，核对现金和未偿本金对出借账本的覆盖，以及份额上界。 Price from recorded assets and check the backing from cash plus outstanding principal and the share bound. */
+  /** 按池的已记账资产定价，核对现金和含利息的未偿债务对出借账本的覆盖，以及份额上界。 Price from recorded assets and check the backing from cash plus indexed outstanding debt and the share bound. */
   const { accountedAssetsRaw, totalSharesRaw, cashRaw, totalDebtRaw, sharesRaw } = position;
   if ((accountedAssetsRaw === 0n) !== (totalSharesRaw === 0n) ||
       totalDebtRaw > accountedAssetsRaw || accountedAssetsRaw > cashRaw + totalDebtRaw || sharesRaw > totalSharesRaw) {

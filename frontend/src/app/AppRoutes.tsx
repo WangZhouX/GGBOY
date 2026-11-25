@@ -9,7 +9,9 @@ import { LendingMarketPage } from '../pages/lending/LendingMarketPage';
 import { LiquidationsPage } from '../pages/lending/LiquidationsPage';
 import { SupplyPage } from '../pages/lending/SupplyPage';
 import { OverviewPage } from '../pages/overview/OverviewPage';
+import { StrategyOperationPage } from '../pages/strategy/StrategyOperationPage';
 import { StrategyPage } from '../pages/strategy/StrategyPage';
+import { StrategyRouteLayout } from '../pages/strategy/StrategyRouteLayout';
 import { VaultOperationPage } from '../pages/vault/VaultOperationPage';
 import { VaultPage } from '../pages/vault/VaultPage';
 import { VaultRouteLayout } from '../pages/vault/VaultRouteLayout';
@@ -50,7 +52,13 @@ export function AppRoutes() {
           <Route path={paths.supplyWithdrawal} element={<LendingSupplyOperationPage action="withdraw" />} />
           <Route path={paths.liquidations} element={<LiquidationsPage />} />
         </Route>
-        <Route path={paths.strategy} element={<StrategyPage />} />
+        {/* 策略管理的三种资金动作使用同一个金库选择。 Strategy operations share the management route's selected vault. */}
+        <Route path={paths.strategy} element={<StrategyRouteLayout />}>
+          <Route index element={<StrategyPage />} />
+          <Route path={paths.strategySwap} element={<StrategyOperationPage action="swap" />} />
+          <Route path={paths.strategyLend} element={<StrategyOperationPage action="lend" />} />
+          <Route path={paths.strategyRecall} element={<StrategyOperationPage action="recall" />} />
+        </Route>
         <Route path={paths.activity}>
           <Route index element={<ActivityPage />} />
           <Route path={paths.activityReceipt} element={<ActivityReceiptPage />} />

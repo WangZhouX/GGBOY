@@ -5,6 +5,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
 use crate::{
+    interest::{self, PositionInterest},
     oracle::require_fresh_price,
     risk::collateral_borrow_capacity,
     state::{
@@ -212,46 +213,90 @@ pub(super) fn borrow(context: Context<Borrow>, amount_raw: u64) -> Result<()> {
         LendingError::InvalidBorrowAccounting
     );
     let position = &accounts.borrow_position;
-    require!(
-        position.debt_raw <= total_debt,
-        LendingError::InvalidBorrowAccounting
-    );
-
-    // 比较借款之后的债务与向下取整的抵押额度，拒绝使用过期或无效报价。
-    // Compare debt after the loan with the floor-rounded collateral limit, rejecting invalid or stale prices.
-    let price = require_fresh_price(
-        &accounts.mock_collateral_price,
-        market,
-        Clock::get()?.unix_timestamp,
-    )?;
+    // 借款定价、抵押限额与计息采用同一个链上时间。
+    // Use one on-chain time for debt pricing, collateral limits, and accrued interest.
+    let now = Clock::get()?.unix_timestamp;
+    let pool_info = accounts.supply_pool.to_account_info();
+    let position_info = accounts.borrow_position.to_account_info();
+    let prior_position = interest::read_position(&position_info)?;
+    let (new_debt, new_total, indexed) = if let Some(mut pool) = interest::read_pool(&pool_info)? {
+        // 激活后供给池存放归一化总债务。旧的只读传法不能绕过计息。
+        // An active pool stores normalized aggregate debt. The legacy readonly meta cannot bypass interest.
+        require!(
+            pool_info.is_writable,
+            LendingError::InterestAccountsRequired
+        );
+        require!(
+            pool.cash <= accounts.cash_vault.amount,
+            LendingError::InvalidBorrowAccounting
+        );
+        pool.cash = pool
+            .cash
+            .checked_sub(amount_raw)
+            .ok_or(LendingError::InsufficientBorrowLiquidity)?;
+        let mut indexed_position = prior_position.unwrap_or(PositionInterest {
+            start: pool.start,
+            shares: 0,
+        });
+        require!(
+            indexed_position.start == pool.start
+                && indexed_position.shares <= pool.shares
+                && (prior_position.is_some() || position.debt_raw == 0),
+            LendingError::InvalidInterestAccounting
+        );
+        let index = pool.project(now)?.index;
+        let issued = interest::normalize_borrow(amount_raw, index);
+        indexed_position.shares = indexed_position
+            .shares
+            .checked_add(issued)
+            .ok_or(LendingError::BorrowOverflow)?;
+        pool.shares = pool
+            .shares
+            .checked_add(issued)
+            .ok_or(LendingError::BorrowOverflow)?;
+        let projected = pool.project(now)?;
+        (
+            interest::debt_due(indexed_position.shares, index)?,
+            projected.debt,
+            Some((pool, indexed_position, projected.assets)),
+        )
+    } else {
+        require!(
+            prior_position.is_none() && position.debt_raw <= total_debt,
+            LendingError::InvalidBorrowAccounting
+        );
+        // 原模式仅把登记现金换成本金，不能支付直接捐入的代币。
+        // In a legacy pool a loan exchanges recorded cash for principal and cannot spend unsolicited transfers.
+        let available = available_accounted_cash(
+            accounts.supply_pool.accounted_assets_raw,
+            accounts.cash_vault.amount,
+            total_debt,
+        )?;
+        require!(
+            amount_raw <= available,
+            LendingError::InsufficientBorrowLiquidity
+        );
+        (
+            position
+                .debt_raw
+                .checked_add(amount_raw)
+                .ok_or(LendingError::BorrowOverflow)?,
+            total_debt
+                .checked_add(amount_raw)
+                .ok_or(LendingError::BorrowOverflow)?,
+            None,
+        )
+    };
+    let price = require_fresh_price(&accounts.mock_collateral_price, market, now)?;
     let maximum_debt = collateral_borrow_capacity(
         position.collateral_raw,
         accounts.collateral_mint.decimals,
         price,
     )?;
-    let new_debt = position
-        .debt_raw
-        .checked_add(amount_raw)
-        .ok_or(LendingError::BorrowOverflow)?;
     require!(
         u128::from(new_debt) <= maximum_debt,
         LendingError::CollateralTooLow
     );
-
-    // 放款只是把已记账的现金换成应收本金，不能支付直接捐入的差额。
-    // Lending exchanges recorded cash for principal and cannot spend excess direct transfers.
-    let available = available_accounted_cash(
-        accounts.supply_pool.accounted_assets_raw,
-        accounts.cash_vault.amount,
-        total_debt,
-    )?;
-    require!(
-        amount_raw <= available,
-        LendingError::InsufficientBorrowLiquidity
-    );
-    let new_total = total_debt
-        .checked_add(amount_raw)
-        .ok_or(LendingError::BorrowOverflow)?;
 
     // 由现有市场 PDA 签名，将指定借款代币发往签名借款人的账户。
     // Sign with the existing market PDA to pay the specified debt tokens to the signing borrower.
@@ -278,6 +323,19 @@ pub(super) fn borrow(context: Context<Borrow>, amount_raw: u64) -> Result<()> {
         market,
         total_debt_raw: new_total,
     });
+    // 两处计息尾部与 SPL 转账同交易提交。首次计息借款保留旧字段并扩充仓位。
+    // Commit both interest trailers with the SPL transfer. The first indexed loan extends the position without changing its old fields.
+    if let Some((pool, position, assets)) = indexed {
+        if prior_position.is_none() {
+            interest::extend_position(
+                &position_info,
+                &accounts.borrower,
+                &accounts.system_program,
+            )?;
+        }
+        interest::store_projected_pool(&pool_info, pool, assets)?;
+        interest::store_position(&position_info, position)?;
+    }
     accounts.borrow_position.debt_raw = new_debt;
     emit!(LendingBorrowAction {
         market,
@@ -299,19 +357,65 @@ pub(super) fn repay(context: Context<Repay>, amount_raw: u64) -> Result<()> {
     require!(amount_raw > 0, LendingError::InvalidBorrowAmount);
     let accounts = context.accounts;
 
-    // 任何价格状态都允许还款。本金扣减以前只核对债务与代币余额。
-    // Repayment works in every price state. Only validate principal and token balances before repayment.
-    let debt = accounts.borrow_position.debt_raw;
-    let total_debt = accounts.borrow_market.total_debt_raw;
-    require!(debt <= total_debt, LendingError::InvalidBorrowAccounting);
-    let new_debt = debt
-        .checked_sub(amount_raw)
-        .ok_or(LendingError::RepaymentExceedsDebt)?;
-    let new_total = total_debt
-        .checked_sub(amount_raw)
-        .ok_or(LendingError::InvalidBorrowAccounting)?;
+    // 任何价格状态都允许还款。启用计息后，以同一市场账面债务的实际变化作为扣款。
+    // Repayment works regardless of price. Indexed repayment debits the actual reduction in aggregate debt.
+    let market = accounts.market.key();
+    let position_info = accounts.borrow_position.to_account_info();
+    let indexed_position = interest::read_position(&position_info)?;
+    let (paid, new_debt, new_total, indexed) = if let Some(mut position) = indexed_position {
+        let [pool_info] = context.remaining_accounts else {
+            return err!(LendingError::InterestAccountsRequired);
+        };
+        let (expected, _) =
+            Pubkey::find_program_address(&[SUPPLY_POOL_SEED, market.as_ref()], &crate::ID);
+        require_keys_eq!(
+            *pool_info.key,
+            expected,
+            LendingError::InvalidInterestAccounting
+        );
+        require!(
+            pool_info.is_writable,
+            LendingError::InterestAccountsRequired
+        );
+        let now = Clock::get()?.unix_timestamp;
+        let mut pool =
+            interest::read_pool(pool_info)?.ok_or(LendingError::InvalidInterestAccounting)?;
+        require!(
+            pool.cash <= accounts.cash_vault.amount,
+            LendingError::InvalidBorrowAccounting
+        );
+        let before = pool.project(now)?;
+        let payment = interest::debt_payment(pool, position, before, amount_raw)?;
+        require_gt!(payment.amount, 0, LendingError::ZeroIndexedRepayment);
+        pool.shares -= payment.shares;
+        position.shares -= payment.shares;
+        pool.cash = pool
+            .cash
+            .checked_add(payment.amount)
+            .ok_or(LendingError::BorrowOverflow)?;
+        let after = pool.project(now)?;
+        (
+            payment.amount,
+            interest::debt_due(position.shares, after.index)?,
+            after.debt,
+            Some((pool_info, pool, position, after.assets)),
+        )
+    } else {
+        let debt = accounts.borrow_position.debt_raw;
+        let total_debt = accounts.borrow_market.total_debt_raw;
+        require!(debt <= total_debt, LendingError::InvalidBorrowAccounting);
+        (
+            amount_raw,
+            debt.checked_sub(amount_raw)
+                .ok_or(LendingError::RepaymentExceedsDebt)?,
+            total_debt
+                .checked_sub(amount_raw)
+                .ok_or(LendingError::InvalidBorrowAccounting)?,
+            None,
+        )
+    };
     require!(
-        accounts.source.amount >= amount_raw,
+        accounts.source.amount >= paid,
         LendingError::InsufficientBorrowTokenBalance
     );
 
@@ -325,19 +429,23 @@ pub(super) fn repay(context: Context<Repay>, amount_raw: u64) -> Result<()> {
                 authority: accounts.borrower.to_account_info(),
             },
         ),
-        amount_raw,
+        paid,
         accounts.debt_mint.decimals,
     )?;
 
-    // 由于偿还的是同额本金，出借记账资产和出借份额保持原值。
-    // Replacing the same amount of principal with cash keeps supplied assets and shares unchanged.
+    // 以实际付清的整数账面债务增加登记现金，份额数量保持不变。
+    // Replace exactly the settled book debt with registered cash while preserving lender share counts.
+    if let Some((pool_info, pool, position, assets)) = indexed {
+        interest::store_projected_pool(pool_info, pool, assets)?;
+        interest::store_position(&position_info, position)?;
+    }
     accounts.borrow_market.total_debt_raw = new_total;
     accounts.borrow_position.debt_raw = new_debt;
     emit!(LendingBorrowAction {
         market: accounts.market.key(),
         borrower: accounts.borrower.key(),
         kind: 2,
-        amount_raw,
+        amount_raw: paid,
         collateral_raw: accounts.borrow_position.collateral_raw,
         debt_raw: new_debt,
     });

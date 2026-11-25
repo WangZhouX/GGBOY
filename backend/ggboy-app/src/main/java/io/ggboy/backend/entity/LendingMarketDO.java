@@ -55,4 +55,24 @@ public record LendingMarketDO(
     public String getMarketAddress() {
         return marketAddress;
     }
+
+    /**
+     * 提供 Lambda 更新使用的价格源公钥访问器，对应 oracle_address 列。
+     * Exposes the price feed public key for Lambda updates of the oracle_address column.
+     *
+     * @return 市场登记的价格源公钥，未登记时为空。 Registered price feed public key, or null before setup.
+     */
+    public String getOracleAddress() {
+        return oracleAddress;
+    }
+
+    /**
+     * 提供 Lambda 更新使用的价格有效期访问器，对应 oracle_max_age_seconds 列。
+     * Exposes the maximum price age for Lambda updates of the oracle_max_age_seconds column.
+     *
+     * @return 价格有效期，单位为秒，未登记时为空。 Maximum price age in seconds, or null before setup.
+     */
+    public Integer getOracleMaxAgeSeconds() {
+        return oracleMaxAgeSeconds;
+    }
 }

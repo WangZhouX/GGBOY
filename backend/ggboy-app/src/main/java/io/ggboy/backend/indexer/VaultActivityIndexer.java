@@ -1,8 +1,8 @@
 package io.ggboy.backend.indexer;
 
-import io.ggboy.backend.indexer.VaultActivityData.Event;
 import io.ggboy.backend.indexer.VaultActivityData.Signature;
 import io.ggboy.backend.indexer.VaultActivityData.Transaction;
+import io.ggboy.backend.indexer.VaultActivityData.VaultEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,7 +14,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * 定期补扫已最终确认的 Devnet 金库存赎，从持久化的连续检查点恢复。
+ * 定期补扫已最终确认的 Devnet 金库存赎和策略操作，从持久化的连续检查点恢复。
  * Periodically backfills finalized Devnet vault activity and resumes from the persisted contiguous checkpoint.
  */
 @Component
@@ -74,7 +74,7 @@ class VaultActivityIndexer {
                 /** 链上 UTC 区块时间，未知时为空。 On-chain UTC block time, null if unknown. */
                 OffsetDateTime blockTime = transaction == null ? null : transaction.blockTime();
                 /** 从真正执行成功的金库调用解析的事件。 Events decoded from successful vault invocations. */
-                List<Event> events = transaction == null ? List.of() : VaultActivityDecoder.decode(programId, transaction.logs());
+                List<VaultEvent> events = transaction == null ? List.of() : VaultActivityDecoder.decode(programId, transaction.logs());
 
                 // 一次原子提交一个签名。竞争实例已推进检查点时，下轮重新查找待处理签名。
                 // Commit one signature atomically. Rediscover pending signatures next pass if another instance advanced first.

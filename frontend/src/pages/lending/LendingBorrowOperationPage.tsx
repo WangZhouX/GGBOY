@@ -10,7 +10,7 @@ import { formatTokenAmount } from '../../shared/formatTokenAmount';
 import { paths } from '../../shared/navigation/paths';
 import { PageLayout } from '../../shared/ui/PageLayout';
 import {
-  BorrowOperationError, getBorrowOperationLimit, prepareBorrowOperation, waitForBorrowOperation, type BorrowOperation,
+  BorrowOperationError, estimateBorrowDebtAfter, getBorrowOperationLimit, prepareBorrowOperation, waitForBorrowOperation, type BorrowOperation,
 } from '../../solana/lending/borrowLendingPosition';
 import { usePhantomWallet, WalletTransactionError } from '../../solana/phantomWallet';
 import { BorrowLimitGuidance } from './BorrowLimitGuidance';
@@ -48,6 +48,8 @@ interface Review {
   collateralRaw: bigint;
   /** 预计债务，以借款 Mint 最小单位计。 Projected debt in debt mint base units. */
   debtRaw: bigint;
+  /** 还款金额在审阅时是否为授权上限。 Whether the reviewed repayment amount is an authorization limit. */
+  repaymentLimit: boolean;
 }
 
 /** 交易确认与仓位刷新独立重试，回执数据保留在确认之后。 Keep confirmation and refresh separate so they can be retried independently. */
@@ -354,8 +356,13 @@ function BorrowForm({ scope, operation, market, walletAddress }: BorrowFormProps
 
     /** 只调整本次动作影响的抵押或债务，最小单位保留整数精度。 Apply the change only to the affected collateral or debt, preserving exact base units. */
     const collateralDelta = operation === 'depositCollateral' ? amountRaw : operation === 'withdrawCollateral' ? -amountRaw : 0n;
-    const debtDelta = operation === 'borrow' ? amountRaw : operation === 'repay' ? -amountRaw : 0n;
-    setReview({ amountRaw, slot: observed.slot, collateralRaw: observed.collateralRaw + collateralDelta, debtRaw: observed.debtRaw + debtDelta });
+    setReview({
+      amountRaw,
+      slot: observed.slot,
+      collateralRaw: observed.collateralRaw + collateralDelta,
+      debtRaw: estimateBorrowDebtAfter(observed, operation, amountRaw),
+      repaymentLimit: operation === 'repay' && observed.interestEnabled,
+    });
     setAttempt({ status: 'idle' });
   }
 
@@ -456,7 +463,8 @@ function BorrowForm({ scope, operation, market, walletAddress }: BorrowFormProps
         {receipt && <p role="status" className="lending-borrow-operation__success">{t('lendingBorrow.confirmed')}</p>}
         {displayed && (step === 'stepReview' || receipt) && (
           <dl className="lending-borrow-operation__summary">
-            <dt>{t(receipt ? 'lendingBorrow.actualAmount' : 'lendingBorrow.reviewedAmount')}</dt>
+            <dt>{t(receipt ? 'lendingBorrow.actualAmount'
+              : activeReview?.repaymentLimit ? 'lendingBorrow.reviewedRepayLimit' : 'lendingBorrow.reviewedAmount')}</dt>
             <dd>{formatTokenAmount(displayed.amountRaw, decimals, locale)} {symbol}</dd>
             <dt>{t(receipt ? 'lendingBorrow.resultCollateral' : 'lendingBorrow.projectedCollateral')}</dt>
             <dd>{formatTokenAmount(displayed.collateralRaw, market.collateralAsset.decimals, locale)} {collateralSymbol}</dd>
@@ -464,6 +472,7 @@ function BorrowForm({ scope, operation, market, walletAddress }: BorrowFormProps
             <dd>{formatTokenAmount(displayed.debtRaw, market.debtAsset.decimals, locale)} {debtSymbol}</dd>
           </dl>
         )}
+        {step === 'stepReview' && !receipt && activeReview?.repaymentLimit && <p>{t('lendingBorrow.repayInterestNote')}</p>}
 
         {/* 状态提示独立于组件内的表单草稿，返回页面也能了解如何继续签名。 */}
         {/* Show approval progress without depending on a local draft so it stays visible after returning. */}

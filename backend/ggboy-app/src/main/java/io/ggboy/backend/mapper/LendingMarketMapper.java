@@ -47,4 +47,24 @@ public interface LendingMarketMapper extends BaseMapper<LendingMarketDO> {
                 .eq(LendingMarketDO::getNetwork, network)
                 .eq(LendingMarketDO::getMarketAddress, marketAddress));
     }
+
+    /**
+     * 为此前未配置的市场绑定经账户验证的预言机。
+     * Binds the verified canonical oracle for a previously unconfigured market.
+     *
+     * @param network 目标网络。 Target network.
+     * @param marketAddress 规范市场公钥。 Canonical market public key.
+     * @param oracle 规范预言机 PDA。 Canonical oracle PDA.
+     * @param maxAgeSeconds 链上报价最大年龄，单位为秒。 Maximum on-chain quote age in seconds.
+     * @return 更新行数。 Number of rows updated.
+     */
+    default int configureOracle(String network, String marketAddress, String oracle, int maxAgeSeconds) {
+        return update(null, Wrappers.lambdaUpdate(LendingMarketDO.class)
+                .eq(LendingMarketDO::getNetwork, network)
+                .eq(LendingMarketDO::getMarketAddress, marketAddress)
+                .isNull(LendingMarketDO::getOracleAddress)
+                .isNull(LendingMarketDO::getOracleMaxAgeSeconds)
+                .set(LendingMarketDO::getOracleAddress, oracle)
+                .set(LendingMarketDO::getOracleMaxAgeSeconds, maxAgeSeconds));
+    }
 }

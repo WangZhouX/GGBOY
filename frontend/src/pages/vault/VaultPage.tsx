@@ -18,21 +18,21 @@ export function VaultPage() {
   /** 页面标题、状态和操作说明使用当前语言。 Localizes the page title, statuses, and operation instructions. */
   const { t } = useTranslation();
   /** 所选金库、钱包状态与公开查询由金库父路由跨页保留。 The parent route retains selection, wallet state and public queries across screens. */
-  const { network, walletAddress, vaults, selectedVault, cashVault, catalog, chain, refreshOverview, selectVault } = useVaultRoute();
+  const { network, walletAddress, vaults, selectedVault, supportedVault, catalog, chain, refreshOverview, selectVault } = useVaultRoute();
   /** 所选金库已经注册时，进入操作页的链接带上明确的网络和金库。 Operation links include the network and vault explicitly once the selection is known. */
   const selection = selectedVault ? new URLSearchParams({ network, vault: selectedVault.address }).toString() : null;
   /** 公开数据优先用当前读链。读链暂时失败时使用上次观测，并标记为上次估算。 Prefer current chain data and label the last observation as an estimate if the read fails. */
-  const overviewVault = cashVault ? {
-    ...cashVault,
+  const overviewVault = supportedVault ? {
+    ...supportedVault,
     latestSnapshot: chain.data
       ? toLiveVaultOverview(chain.data, chain.isError)
-      : chain.isError && cashVault.latestSnapshot
-        ? { ...cashVault.latestSnapshot, freshness: 'STALE' as const }
+      : chain.isError && supportedVault.latestSnapshot
+        ? { ...supportedVault.latestSnapshot, freshness: 'STALE' as const }
         : null,
   } : selectedVault;
 
   /** 已验证的 Devnet 金库在左栏直接展示同一次读链取得的份额。 For the supported Devnet vault, show holdings from the same chain read as the right column. */
-  const livePosition = cashVault ? {
+  const livePosition = supportedVault ? {
     snapshot: chain.data ? toLiveVaultPosition(chain.data, chain.isError) : undefined,
     isPending: chain.isPending,
     isError: chain.isError,
@@ -40,7 +40,7 @@ export function VaultPage() {
     refresh: chain.refetch,
   } : undefined;
   /** 两个独立操作入口链接到同一个已验证金库。 Both separate operations target the same validated vault. */
-  const actions = cashVault && selection && walletAddress ? (
+  const actions = supportedVault && selection && walletAddress ? (
     <div className="vault-workspace__actions">
       <div className="vault-workspace__action">
         <p>{t('vaultFlow.depositDescription')}</p>
@@ -76,7 +76,7 @@ export function VaultPage() {
           className="vault-overview__refresh"
           type="button"
           onClick={refreshOverview}
-          disabled={catalog.isFetching || (cashVault !== undefined && chain.isFetching)}
+          disabled={catalog.isFetching || (supportedVault !== undefined && chain.isFetching)}
         >
           {t(catalog.isError && !catalog.isFetching ? 'vaultOverview.retry' : 'vaultOverview.refresh')}
         </button>
@@ -102,13 +102,15 @@ export function VaultPage() {
           {!catalog.isError && vaults?.length === 0 && (
             <p className="vault-overview__status" role="status">{t('vaultOverview.empty')}</p>
           )}
-          {cashVault && chain.isPending && (
+          {supportedVault && chain.isPending && (
             <p className="vault-overview__status" role="status">{t('vaultOverview.chainLoading')}</p>
           )}
-          {cashVault && chain.isError && (
+          {supportedVault && chain.isError && (
             <p className="vault-overview__status vault-overview__status--error" role="alert">{t('vaultOverview.chainError')}</p>
           )}
-          {overviewVault && (!cashVault || !chain.isPending) && <VaultOverviewCards vault={overviewVault} />}
+          {overviewVault && (!supportedVault || !chain.isPending) && (
+            <VaultOverviewCards vault={overviewVault} strategyConfigured={!!chain.data?.config} />
+          )}
         </aside>
       </div>
 

@@ -7,7 +7,9 @@ import io.ggboy.backend.entity.ChainEventKey;
 import io.ggboy.backend.entity.ChainEventParticipantDO;
 import io.ggboy.backend.entity.LendingMarketDO;
 import io.ggboy.backend.indexer.LendingActivityDecoder.Event;
-import io.ggboy.backend.indexer.LendingActivityDecoder.SupplyWithdrawalEvent;
+import io.ggboy.backend.indexer.LendingActivityDecoder.LiquidationEvent;
+import io.ggboy.backend.indexer.LendingActivityDecoder.SinglePartyEvent;
+import io.ggboy.backend.indexer.LendingActivityDecoder.SupplyEvent;
 import io.ggboy.backend.indexer.VaultActivityData.Signature;
 import io.ggboy.backend.mapper.AssetMintMapper;
 import io.ggboy.backend.mapper.ChainEventAssetMapper;
@@ -17,10 +19,14 @@ import io.ggboy.backend.mapper.LendingMarketMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigInteger;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static io.ggboy.backend.indexer.ActivityIndexStore.NETWORK;
 
@@ -39,9 +45,9 @@ public class LendingActivityStore {
     private final AssetMintMapper mints;
     /** 按网络、签名和日志序号读写借贷事件。 Reads and writes lending events by network, signature and log index. */
     private final ChainEventMapper activity;
-    /** 写入借款人或出借人角色，供交易活动按钱包检索。 Writes borrower or supplier roles for wallet-filtered activity. */
+    /** 写入借款人、出借人及清算人角色，供交易活动按钱包检索。 Writes borrower, supplier and liquidator roles for wallet-filtered activity. */
     private final ChainEventParticipantMapper participants;
-    /** 写入抵押品或借款代币的实际转账。 Writes the actual transfer of collateral or debt tokens. */
+    /** 写入实际转账和坏账核销。 Persists actual transfers and bad debt write-offs. */
     private final ChainEventAssetMapper assets;
 
     /**
@@ -132,7 +138,10 @@ public class LendingActivityStore {
                 indexStore.ensureParent(current, blockTime, indexedAt);
                 parentReady = true;
             }
-            insertEvent(programId, key, market, event);
+            switch (event) {
+                case SinglePartyEvent single -> insertEvent(programId, key, market, single);
+                case LiquidationEvent liquidation -> insertLiquidation(programId, key, market, liquidation);
+            }
         }
         return true;
     }
@@ -146,13 +155,13 @@ public class LendingActivityStore {
      * @param market 已登记的 Devnet 市场和绑定 Mint。 Registered Devnet market and its mint bindings.
      * @param event 已核对签名的链上动作和实际最小单位转账量。 Signer-verified on-chain action and actual transfer in token base units.
      */
-    private void insertEvent(String programId, ChainEventKey key, LendingMarketDO market, Event event) {
-        /** 抵押存取使用抵押 Mint。借款、还款与出借提取使用借款 Mint。 Collateral deposits and withdrawals use the collateral mint. Borrows, repayments, and supply withdrawals use the debt mint. */
+    private void insertEvent(String programId, ChainEventKey key, LendingMarketDO market, SinglePartyEvent event) {
+        /** 抵押存取使用抵押 Mint。借款、还款及出借存取使用借款 Mint。 Collateral transfers use the collateral mint. Loans, repayments, supply deposits, and supply withdrawals use the debt mint. */
         String mintAddress = event.action().usesCollateralMint() ? market.collateralMint() : market.debtMint();
-        // 提取回执中的付款 Mint 必须与市场登记一致。遇到不一致时回滚本次事务与检查点。
-        // Verify the payout mint against the market registry. A mismatch rolls back the transaction and checkpoint.
-        if (event instanceof SupplyWithdrawalEvent withdrawal && !mintAddress.equals(withdrawal.debtMint())) {
-            throw new IllegalStateException("Devnet lending withdrawal payout mint does not match market " + market.marketAddress());
+        // 出借存取回执中的实际 Mint 必须与市场登记一致，不匹配时回滚本次事务与检查点。
+        // Both supply flows must use the registered debt mint. A mismatch rolls back the transaction and checkpoint.
+        if (event instanceof SupplyEvent supply && !mintAddress.equals(supply.debtMint())) {
+            throw new IllegalStateException("Devnet lending supply mint does not match market " + market.marketAddress());
         }
 
         /** 由市场登记选择的 Mint，精度用于数值展示，实际数量仍保存整数。 Market-bound mint supplying precision for display while the amount remains an integer. */
@@ -163,7 +172,66 @@ public class LendingActivityStore {
                 event.action().eventType(), market.marketAddress()));
         participants.insert(new ChainEventParticipantDO(
                 NETWORK, key.signature(), key.eventIndex(), event.wallet(), event.action().participantRole()));
-        assets.insert(new ChainEventAssetDO(NETWORK, key.signature(), key.eventIndex(), 0,
-                mint.mintAddress(), mint.decimals(), event.amountRaw(), event.action().movement()));
+        insertAsset(key, 0, mint, event.amountRaw(), event.action().movement());
+    }
+
+    /**
+     * 用登记 Mint 的精度写入清算双方、实际代偿、划转抵押品和坏账核销。
+     * Stores both liquidation parties, actual repayment, seized collateral and bad debt using registered mint precision.
+     *
+     * @param programId 已核对的借贷程序公钥。 Verified lending program key.
+     * @param key 交易签名及稳定的原始日志序号。 Transaction signature and stable original log index.
+     * @param market 已登记的目标市场及两个 Mint。 Registered market and its two mints.
+     * @param event 已核对发起人签名和金额关系的清算事件。 Liquidation event with verified signer and amount relationships.
+     * @throws IllegalStateException 事件 Mint 与市场不一致，或 Mint 元数据缺失。 Event mints differ from the market or required mint metadata is missing.
+     */
+    private void insertLiquidation(String programId, ChainEventKey key, LendingMarketDO market, LiquidationEvent event) {
+        // 借款和抵押 Mint 与登记方向分别匹配，避免错用精度或把抵押品误记作坏账。
+        // Match the debt and collateral mints in order to preserve decimals and keep collateral separate from bad debt.
+        if (!event.debtMint().equals(market.debtMint()) || !event.collateralMint().equals(market.collateralMint())) {
+            throw new IllegalStateException("Devnet lending liquidation mints do not match market " + market.marketAddress());
+        }
+        /** 代偿与坏账共享借款 Mint，抵押品用自己的精度。 Repayment and bad debt share the debt mint. Collateral uses its own precision. */
+        Map<String, AssetMintDO> byMint = mints.selectByNetworkAndMintAddresses(NETWORK,
+                        List.of(event.debtMint(), event.collateralMint())).stream()
+                .collect(Collectors.toMap(AssetMintDO::mintAddress, Function.identity()));
+        AssetMintDO debt = byMint.get(event.debtMint());
+        AssetMintDO collateral = byMint.get(event.collateralMint());
+        if (debt == null || collateral == null) {
+            throw new IllegalStateException("Missing Devnet mint metadata for liquidation market " + market.marketAddress());
+        }
+
+        activity.insert(new ChainEventDO(NETWORK, key.signature(), key.eventIndex(), programId, "LENDING",
+                "LENDING_LIQUIDATION", market.marketAddress()));
+        participants.insert(new ChainEventParticipantDO(
+                NETWORK, key.signature(), key.eventIndex(), event.borrower(), "BORROWER"));
+        participants.insert(new ChainEventParticipantDO(
+                NETWORK, key.signature(), key.eventIndex(), event.liquidator(), "LIQUIDATOR"));
+
+        // 只保存真实发生的金额。单独核销坏账时用序号零，且不生成代偿或抵押品转账。
+        // Store only actual movements. Write-off alone uses leg index zero and does not generate transfers.
+        boolean repaid = event.repaidRaw().signum() > 0;
+        if (repaid) {
+            insertAsset(key, 0, debt, event.repaidRaw(), "DEBT_REPAID");
+            insertAsset(key, 1, collateral, event.seizedCollateralRaw(), "COLLATERAL_SEIZED");
+        }
+        if (event.badDebtRaw().signum() > 0) {
+            insertAsset(key, repaid ? 2 : 0, debt, event.badDebtRaw(), "BAD_DEBT");
+        }
+    }
+
+    /**
+     * 保存交易回执的一项资产变动或账面损失。
+     * Persists one receipt leg for an asset movement or book loss.
+     *
+     * @param key 交易签名与原始日志序号。 Transaction signature and original log index.
+     * @param legIndex 本事件内从零开始的回执明细序号。 Zero-based leg index within this event.
+     * @param mint 已登记的 Mint 及其小数位数。 Registered mint and its decimal precision.
+     * @param amountRaw 使用对应 Mint 最小单位的实际金额。 Actual amount in the mint's base units.
+     * @param legType 数据库接受的业务变动代码。 Business movement code accepted by the database.
+     */
+    private void insertAsset(ChainEventKey key, int legIndex, AssetMintDO mint, BigInteger amountRaw, String legType) {
+        assets.insert(new ChainEventAssetDO(NETWORK, key.signature(), key.eventIndex(), legIndex,
+                mint.mintAddress(), mint.decimals(), amountRaw, legType));
     }
 }

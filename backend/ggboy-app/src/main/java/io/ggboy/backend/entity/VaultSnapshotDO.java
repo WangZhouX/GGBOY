@@ -37,6 +37,10 @@ import java.time.OffsetDateTime;
  *        Sum of vault cash, strategy value and lending value in quote mint base units. Null if strategy value is unavailable.
  * @param totalSharesRaw 当前已发行的份额总量，单位为份额 Mint 最小单位。
  *        Current outstanding share supply in base units of the share mint.
+ * @param autoRecallEnabled 同槽 Vault 状态是否允许自动收回借贷资金。旧记录默认为 false。
+ *        Whether the same-slot Vault state allowed automatic recall. Historical rows default to false.
+ * @param lendingPositionOpen 同槽金库的借贷池份额是否大于零。旧记录为空，表示状态未知。
+ *        Whether the vault owns nonzero lending shares at that slot. Null in old rows where the state is unknown.
  */
 @TableName("vault_snapshot")
 public record VaultSnapshotDO(
@@ -51,7 +55,9 @@ public record VaultSnapshotDO(
         @TableField("lend_value_raw") BigInteger lendValueRaw,
         @TableField("lending_withdrawable_raw") BigInteger lendingWithdrawableRaw,
         @TableField("nav_raw") BigInteger navRaw,
-        @TableField("total_shares_raw") BigInteger totalSharesRaw
+        @TableField("total_shares_raw") BigInteger totalSharesRaw,
+        @TableField("auto_recall_enabled") boolean autoRecallEnabled,
+        @TableField("lending_position_open") Boolean lendingPositionOpen
 ) {
 
     /**

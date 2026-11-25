@@ -60,12 +60,13 @@ public class VaultController {
      *
      * <p>策略金库页（{@code /vault}，原型 {@code #vault}）使用本接口展示「金库资产与每份净值」
      * 和「即时赎回资金来源」。首次打开、刷新或切换网络时由页面查询缓存管理请求，无需连接钱包。
-     * 每条金库记录供页面展示总净值、每份净值、闲置现金、策略与出借估值，以及快照记录的可支付资金。
+     * 每条金库记录供页面展示总净值、每份净值、闲置现金、策略与出借估值，以及即时赎回的资金来源。快照中的 {@code autoRecallEnabled} 表示是否支持用借贷池可收回资金支付。
      * The Strategy Vault page ({@code /vault}, prototype {@code #vault}) uses this endpoint for
      * Vault Assets and NAV per Share and Immediate Redemption Funding. Its query cache manages
      * requests on first entry, refresh, and network switches without a connected wallet.
      * Each entry provides total NAV, NAV per share, idle cash, strategy and lending valuations,
-     * and the funding recorded in the snapshot.
+     * and the funding for immediate redemption. The snapshot flag {@code autoRecallEnabled} indicates
+     * whether recallable lending cash can fund a redemption.
      *
      * @param network 必填，使用 {@code localnet} 或 {@code devnet}。
      *        Required network identifier, either {@code localnet} or {@code devnet}.

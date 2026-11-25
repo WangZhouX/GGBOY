@@ -15,8 +15,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * 从已登记 Devnet 借贷程序的最终确认交易历史补扫借款活动和出借提取。
- * Backfills borrowing and supply withdrawal activities from finalized transaction history of the registered Devnet lending program.
+ * 从已登记 Devnet 借贷程序的最终确认交易历史补扫借款、出借存取和清算活动。
+ * Backfills borrowing, supply, withdrawal and liquidation activities from finalized transaction history of the registered Devnet lending program.
  */
 @Component
 @ConditionalOnProperty(prefix = "ggboy.devnet-lending-indexer", name = "enabled", matchIfMissing = true)

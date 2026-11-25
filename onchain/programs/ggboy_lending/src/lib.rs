@@ -6,7 +6,10 @@ use anchor_lang::prelude::*;
 mod collateral;
 mod debt;
 mod initialize;
+mod interest;
+mod liquidation;
 mod oracle;
+mod prepare_supply;
 mod risk;
 mod state;
 mod supply;
@@ -15,7 +18,13 @@ mod withdraw_supply;
 pub use collateral::*;
 pub use debt::*;
 pub use initialize::*;
+use interest::__client_accounts_enable_interest;
+#[cfg(feature = "cpi")]
+use interest::__cpi_client_accounts_enable_interest;
+pub use interest::{project_pool_assets, project_pool_cash, project_position_debt, EnableInterest};
+pub use liquidation::*;
 pub use oracle::*;
+pub use prepare_supply::*;
 pub use state::{
     BorrowMarket, BorrowPosition, LendingBorrowAction, LendingMarket, MockCollateralPrice,
     SupplyPool, SupplyPosition,
@@ -42,6 +51,21 @@ pub mod ggboy_lending {
     /// Initialization assigns both custody authorities to the market PDA. Any constraint failure reverts the whole instruction.
     pub fn initialize_lending_market(context: Context<InitializeLendingMarket>) -> Result<()> {
         initialize::handle(context)
+    }
+
+    /// 在未偿旧债务归零后，由市场管理员启用固定点计息。
+    /// The administrator enables fixed-point interest after outstanding legacy debt reaches zero.
+    pub fn enable_interest(context: Context<EnableInterest>) -> Result<()> {
+        interest::enable(context)
+    }
+
+    /// 准备借贷池和签名出借人的仓位，由独立付款人承担首次创建费用。
+    /// Prepare the lending pool and signing supplier's position using a separate rent payer.
+    ///
+    /// `context` 识别市场、签名出借人与付款人。已有份额和记账余额不变，无代币转账。
+    /// `context` identifies the market, signing supplier, and payer. Existing shares and accounting balances are preserved without moving tokens.
+    pub fn prepare_supply(context: Context<PrepareSupply>) -> Result<()> {
+        prepare_supply::handle(context)
     }
 
     /// 将出借者的 mockUSDC 转入市场托管账户，按最低到账份额限制记录仓位。
@@ -133,6 +157,19 @@ pub mod ggboy_lending {
         min_amount_out_raw: u64,
     ) -> Result<()> {
         withdraw_supply::handle(context, shares_raw, min_amount_out_raw)
+    }
+
+    /// 清算人代付超出清算阈值仓位的债务并获得抵押品，无法回收的债务冲减出借池资产。
+    /// Repay a position beyond the liquidation threshold and seize collateral. Write unrecoverable debt off against pool assets.
+    ///
+    /// 两项参数是各自资产最小单位。双零仅用于无法覆盖一最小单位代偿的坏账。
+    /// Both arguments use their respective asset base units. Two zeros are accepted only for debt with no repayable unit.
+    pub fn liquidate(
+        context: Context<Liquidate>,
+        repay_raw: u64,
+        min_collateral_raw: u64,
+    ) -> Result<()> {
+        liquidation::handle(context, repay_raw, min_collateral_raw)
     }
 
     /// 验证脚手架指令可以调用，返回成功且不读写链上账户。
@@ -278,4 +315,48 @@ pub enum LendingError {
     /// The quote exceeds available custody cash or accounted assets not lent out.
     #[msg("Insufficient accounted cash for the requested supply withdrawal")]
     InsufficientSupplyWithdrawalLiquidity,
+    /// 记账尾部未启用或账户数据不符合当前计息状态。
+    /// The interest trailer is missing or inconsistent with the current accounting state.
+    #[msg("Lending interest accounting is inconsistent")]
+    InvalidInterestAccounting,
+    /// 计息结算时缺少规范的可写出借池账户。
+    /// Indexed settlement requires the canonical writable supply pool account.
+    #[msg("Indexed lending requires its writable supply pool")]
+    InterestAccountsRequired,
+    /// 计息已启用，不能重新设定时间基准。
+    /// Interest is already active. The activation timestamp cannot be reset.
+    #[msg("Lending interest is already active")]
+    InterestAlreadyEnabled,
+    /// 旧账本的未偿债务必须先结清。
+    /// Legacy outstanding debt must first be settled.
+    #[msg("Repay outstanding legacy debt before enabling interest")]
+    LegacyDebtOutstanding,
+    /// 本次还款的授权金额太小，不能清偿可记账债务。
+    /// The authorized payment is too small to settle a measurable debt amount.
+    #[msg("Repayment rounds down to zero")]
+    ZeroIndexedRepayment,
+    /// 清算人必须与仓位借款人不同。
+    /// A liquidator must be distinct from the position borrower.
+    #[msg("A borrower cannot liquidate their own position")]
+    SelfLiquidation,
+    /// 清算人须使用对应市场 Mint 的规范钱包关联账户。
+    /// A liquidator must use their canonical wallet ATA for each market mint.
+    #[msg("Invalid associated token account for the liquidator")]
+    InvalidLiquidatorTokenAccount,
+    /// 仓位债务未严格超过按有效价格计算的清算阈值。
+    /// Debt does not strictly exceed the liquidation threshold at the valid price.
+    #[msg("Position does not exceed the liquidation threshold")]
+    PositionNotLiquidatable,
+    /// 代偿额不符合单笔上限、抵押覆盖及坏账零额规则。
+    /// Repayment violates the close cap, collateral backing, or zero-amount write-off rules.
+    #[msg("Invalid liquidation repayment or collateral minimum")]
+    InvalidLiquidationAmount,
+    /// 当前代偿额按抵押最小单位向下取整后无抵押品可领取。
+    /// The current repayment rounds down to zero collateral base units.
+    #[msg("Liquidation rounds down to zero collateral")]
+    ZeroLiquidationCollateral,
+    /// 重新报价的抵押品领取量小于签名时设定的最小值。
+    /// Requoted collateral output is below the signed minimum.
+    #[msg("Calculated collateral output is below the signed minimum")]
+    MinimumLiquidationCollateralNotMet,
 }

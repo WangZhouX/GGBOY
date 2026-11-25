@@ -10,3 +10,4 @@
 | [lending-supply-operation.css](lending-supply-operation.css) | 出借和提取操作页共用的输入表单、金额与份额核对、交易结果 |
 | [lending-borrow-operation.css](lending-borrow-operation.css) | 四类借款操作的金额输入、核对与交易结果 |
 | [lending-borrow-activity.css](lending-borrow-activity.css) | 「最近借款交易」的列表、确认状态和浏览器链接 |
+| [liquidations.css](liquidations.css) | 公开清算列表、价格来源、核对表单、观察状态和查询回执 |

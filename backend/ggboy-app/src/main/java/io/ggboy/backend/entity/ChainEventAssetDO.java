@@ -7,8 +7,8 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.math.BigInteger;
 
 /**
- * 事件中的一项实际资产变动，保存当时的 Mint 和精度。
- * One actual asset movement in an event, including its mint and precision at the time.
+ * 事件中的一项资产变动或坏账核销，保存当时的 Mint 和精度。
+ * One asset movement or bad debt write-off in an event, including its mint and precision at the time.
  *
  * <p>复合主键 / Composite primary key: {@code (network, signature, event_index, leg_index)}.
  *
@@ -24,10 +24,10 @@ import java.math.BigInteger;
  *        SPL token mint address at the time of the transaction, including share mints.
  * @param decimals 该 Mint 的小数位数，用于展示最小单位金额。
  *        Decimal precision of the mint, used to display base-unit amounts.
- * @param amountRaw 实际资产变动量，使用对应代币的最小单位。
- *        Actual amount moved in base units of the associated token.
- * @param legType 资产变动的业务语义。出入方向依据事件主体定义。
- *        Meaning of the asset movement. Direction is relative to the event subject.
+ * @param amountRaw 转账或账面损失的金额，使用对应代币的最小单位。
+ *        Amount transferred or written off in base units of the associated token.
+ * @param legType 转账或核销的业务语义。BAD_DEBT 表示借款资产账面损失。
+ *        Business meaning of the transfer or write-off. BAD_DEBT represents a book loss in the debt asset.
  */
 @TableName("chain_event_asset")
 public record ChainEventAssetDO(

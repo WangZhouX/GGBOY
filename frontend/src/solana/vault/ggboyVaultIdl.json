@@ -12,6 +12,240 @@
   ],
   "instructions": [
     {
+      "name": "clear_strategy_dust",
+      "docs": [
+        "清理按有效预言机价无法产生一单位现金到账的完整现货尾仓。",
+        "Clear the full spot balance only when its valid oracle quote cannot pay one cash base unit.",
+        "",
+        "`context` 使用与换币相同的账户约束。指令将尾仓转入测试储备并记录事件。",
+        "`context` uses the swap account constraints. The instruction transfers dust to the test reserve and logs it."
+      ],
+      "discriminator": [
+        10,
+        119,
+        125,
+        65,
+        58,
+        172,
+        155,
+        89
+      ],
+      "accounts": [
+        {
+          "name": "manager",
+          "docs": [
+            "策略配置中指定的签名钱包。 Signing wallet specified by the strategy configuration."
+          ],
+          "signer": true,
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "定价及资金流转所属的金库。 Vault whose assets are priced and moved."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          },
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "strategy",
+          "docs": [
+            "规范配置，校验管理者、金库、策略资产和市场。 Canonical config binding authority, vault, spot mint, and market."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "金库真实结算资产托管。 Actual vault cash custody."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "金库原始结算 Mint。 Original vault settlement mint."
+          ],
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "strategy_custody",
+          "docs": [
+            "金库的策略资产托管，余额包含于金库净值。 Vault spot custody counted in vault NAV."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy_mint",
+          "docs": [
+            "已绑定的九位小数策略 Mint。 Bound nine-decimal spot mint."
+          ],
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "swap_cash",
+          "docs": [
+            "测试兑换所用的结算资产储备。 Test exchange settlement reserve."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  119,
+                  97,
+                  112,
+                  95,
+                  99,
+                  97,
+                  115,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "swap_strategy",
+          "docs": [
+            "测试兑换所用的策略资产储备。 Test exchange spot reserve."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  119,
+                  97,
+                  112,
+                  95,
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "docs": [
+            "绑定的市场，锚定价格及出借价值。 Bound market anchoring oracle and lending valuation."
+          ],
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "price"
+        },
+        {
+          "name": "supply_pool"
+        },
+        {
+          "name": "supply_position"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "同一交易执行交换两条转账的经典 SPL Token 程序。 Classic SPL Token program executing both swap legs."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "deposit",
       "docs": [
         "将投资者的结算资产转入金库，按存入前的净值铸造份额。",
@@ -77,8 +311,8 @@
         {
           "name": "cash_vault",
           "docs": [
-            "金库控制的结算资产账户，存入前余额用于报价，存入后接收资金。",
-            "Vault-controlled settlement account whose pre-deposit balance prices the new shares and receives the funds."
+            "金库控制的结算资产账户，存入前余额计入净值，存入后接收资金。",
+            "Vault-controlled settlement account whose pre-deposit balance contributes to NAV and receives the funds."
           ],
           "writable": true,
           "relations": [
@@ -131,6 +365,90 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "enable_auto_recall",
+      "docs": [
+        "由现有金库管理员启用投资者自动收回功能。",
+        "Enable investor auto recall as the vault's existing administrator.",
+        "",
+        "`context` 绑定签名管理员与已启用策略的规范金库。迁移只设置功能位。",
+        "`context` binds the signing administrator and canonical active strategy vault. Migration only sets the capability bit."
+      ],
+      "discriminator": [
+        166,
+        190,
+        221,
+        44,
+        94,
+        186,
+        55,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "administrator",
+          "docs": [
+            "初始化金库时绑定的管理员签名。 Signing administrator bound by vault initialization."
+          ],
+          "signer": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "保存功能位的规范金库。 Canonical vault holding the capability byte."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          },
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "strategy",
+          "docs": [
+            "已存在且属于该金库的规范策略配置。 Existing canonical strategy configuration belonging to this vault."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
     },
     {
       "name": "initialize_vault",
@@ -289,6 +607,299 @@
       "args": []
     },
     {
+      "name": "initialize_vault_strategy",
+      "docs": [
+        "管理员为现有金库启用策略，创建规范托管并保存比例参数。",
+        "Enable strategy on an existing vault, create canonical custody, and store the ratio limits.",
+        "",
+        "`manager` 是策略钱包。留存、出借和每笔兑换限制使用基点。",
+        "`manager` is the strategy wallet. Reserve, lending, and per-swap limits use basis points."
+      ],
+      "discriminator": [
+        152,
+        92,
+        20,
+        88,
+        168,
+        111,
+        146,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "administrator",
+          "docs": [
+            "支付配置及托管账户租金的金库管理员签名。 Signing vault administrator and rent payer."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "原金库状态，延长一个字节并保留所有原字段。 Existing vault extended by one byte with all fields preserved."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy",
+          "docs": [
+            "从金库公钥派生的策略配置。 Strategy configuration derived from the vault key."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "金库原始结算 Mint。 Original vault settlement mint."
+          ],
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "strategy_mint",
+          "docs": [
+            "市场抵押品 Mint，精度固定为九位。 Nine-decimal market collateral mint."
+          ]
+        },
+        {
+          "name": "market",
+          "docs": [
+            "借贷程序的唯一市场，与金库结算及持仓 Mint 同对。 Lending singleton bound to the vault's mint pair."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                113,
+                55,
+                240,
+                154,
+                209,
+                203,
+                235,
+                200,
+                92,
+                64,
+                175,
+                112,
+                20,
+                179,
+                227,
+                213,
+                76,
+                242,
+                83,
+                232,
+                93,
+                253,
+                129,
+                12,
+                101,
+                134,
+                60,
+                29,
+                46,
+                156,
+                231,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "strategy_custody",
+          "docs": [
+            "金库 PDA 控制的策略持仓托管账户。 Spot custody controlled by the vault PDA."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "swap_cash",
+          "docs": [
+            "独立于金库的测试兑换结算资产储备。 Test exchange cash reserve, separate from the vault."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  119,
+                  97,
+                  112,
+                  95,
+                  99,
+                  97,
+                  115,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "swap_strategy",
+          "docs": [
+            "独立于金库的测试兑换策略资产储备。 Test exchange spot reserve, separate from the vault."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  119,
+                  97,
+                  112,
+                  95,
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "经典 SPL Token 程序。 Classic SPL Token program."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "分配策略和托管账户的系统程序。 System program allocating the strategy and custody accounts."
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "manager",
+          "type": "pubkey"
+        },
+        {
+          "name": "reserve_bps",
+          "type": "u16"
+        },
+        {
+          "name": "lending_cap_bps",
+          "type": "u16"
+        },
+        {
+          "name": "max_trade_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "ping",
       "docs": [
         "验证脚手架指令可以调用，返回成功且不读写链上账户。",
@@ -313,8 +924,8 @@
     {
       "name": "redeem",
       "docs": [
-        "按赎回前的净值销毁投资者份额，并从纯现金金库支付结算资产。",
-        "Burn investor shares at the pre-redemption NAV and pay the settlement asset from cash custody.",
+        "按赎回前的净值销毁投资者份额，现金不足时可先从出借仓位收回并支付。",
+        "Burn investor shares at pre-redemption NAV, with optional recall from lending before payment.",
         "",
         "`context` 包含投资者签名、已配置的金库账户和投资者的代币账户。",
         "`context` contains the investor signer, configured vault accounts, and investor token accounts.",
@@ -376,8 +987,8 @@
         {
           "name": "cash_vault",
           "docs": [
-            "金库 PDA 控制的现金账户，赎回前的余额是定价和支付上限的依据。",
-            "Vault-controlled cash account whose prior balance prices and caps the payout."
+            "金库 PDA 控制的现金账户，赎回前余额计入净值，也是收回和支付的结算账户。",
+            "Vault-controlled cash whose prior balance contributes to NAV and settles recall and payout."
           ],
           "writable": true,
           "relations": [
@@ -430,6 +1041,920 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "strategy_lend",
+      "docs": [
+        "在约束范围内把闲置现金投入绑定的借贷市场。",
+        "Supply idle cash to the bound lending market within configured limits.",
+        "",
+        "`assets_in` 和 `min_shares_out` 分别是现金和池份额最小单位。",
+        "`assets_in` and `min_shares_out` are cash and pool share base units."
+      ],
+      "discriminator": [
+        1,
+        73,
+        65,
+        24,
+        54,
+        17,
+        70,
+        208
+      ],
+      "accounts": [
+        {
+          "name": "manager",
+          "docs": [
+            "配置中的管理者，首次出借时支付租金。 Configured manager and first-supply rent payer."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "结算资产和出借份额所归属的金库。 Vault owning settlement assets and credited supply shares."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          },
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "strategy",
+          "docs": [
+            "金库已启用的配置及出借上限。 Enabled vault configuration and lending limits."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "出借资金只从金库现金扣除。 Supplies exclusively from vault cash."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "初始化时登记的结算 Mint。 Settlement mint bound at initialization."
+          ],
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "strategy_custody",
+          "docs": [
+            "通过规范 PDA 和代币归属约束读出实际的策略资产持仓。 Actual vault spot balance verified by PDA and token binding."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "docs": [
+            "与金库配置绑定的真实借贷市场。 Actual lending market bound to the vault configuration."
+          ],
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "price"
+        },
+        {
+          "name": "lending_cash",
+          "docs": [
+            "借贷市场规范现金托管。 Market's canonical settlement cash custody."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                113,
+                55,
+                240,
+                154,
+                209,
+                203,
+                235,
+                200,
+                92,
+                64,
+                175,
+                112,
+                20,
+                179,
+                227,
+                213,
+                76,
+                242,
+                83,
+                232,
+                93,
+                253,
+                129,
+                12,
+                101,
+                134,
+                60,
+                29,
+                46,
+                156,
+                231,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "supply_pool",
+          "writable": true
+        },
+        {
+          "name": "supply_position",
+          "writable": true
+        },
+        {
+          "name": "lending_program",
+          "docs": [
+            "Anchor 检查内层 CPI 目标是编译期指定的借贷程序。 Anchor pins the inner CPI to the compiled lending program."
+          ],
+          "address": "8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "借贷程序执行现金转账的 SPL 代币程序。 SPL Token program responsible for lending transfers."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "首次建仓时分配池记账和金库仓位。 Allocates pool accounting and the vault position on first supply."
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "assets_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_shares_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "strategy_recall",
+      "docs": [
+        "从借贷市场赎回金库持有的出借份额，把实际回款退回现金托管。",
+        "Redeem the vault's lending shares and return realized cash to vault custody.",
+        "",
+        "`shares_in` 是池份额最小单位，`min_assets_out` 是最低到账的现金最小单位。",
+        "`shares_in` and `min_assets_out` use pool share and minimum cash base units, respectively."
+      ],
+      "discriminator": [
+        158,
+        84,
+        24,
+        73,
+        101,
+        132,
+        222,
+        45
+      ],
+      "accounts": [
+        {
+          "name": "manager",
+          "docs": [
+            "策略配置中签名管理者。 Authorized strategy manager signer."
+          ],
+          "signer": true,
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "出借份额归属和现金结算的金库。 Vault owning the supply position and receiving settlement cash."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          },
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "strategy",
+          "docs": [
+            "规范配置同时绑定签名人和市场。 Canonical configuration binding the signer and market."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "收回的资金仅回到金库现金账户。 Recalled cash returns exclusively to vault custody."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "金库的结算资产 Mint。 Vault settlement asset mint."
+          ],
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "market",
+          "docs": [
+            "配置绑定的借贷市场。 Configured lending market."
+          ],
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "lending_cash",
+          "docs": [
+            "借贷市场的规范现金托管。 Canonical market cash custody."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                113,
+                55,
+                240,
+                154,
+                209,
+                203,
+                235,
+                200,
+                92,
+                64,
+                175,
+                112,
+                20,
+                179,
+                227,
+                213,
+                76,
+                242,
+                83,
+                232,
+                93,
+                253,
+                129,
+                12,
+                101,
+                134,
+                60,
+                29,
+                46,
+                156,
+                231,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "supply_pool",
+          "docs": [
+            "借贷程序校验该市场的规范池记账。 Pool accounting validated by the lending program."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  108,
+                  121,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                113,
+                55,
+                240,
+                154,
+                209,
+                203,
+                235,
+                200,
+                92,
+                64,
+                175,
+                112,
+                20,
+                179,
+                227,
+                213,
+                76,
+                242,
+                83,
+                232,
+                93,
+                253,
+                129,
+                12,
+                101,
+                134,
+                60,
+                29,
+                46,
+                156,
+                231,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "supply_position",
+          "docs": [
+            "只允许销毁金库自己的出借份额。 Burns only supply shares owned by this vault."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  108,
+                  121,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                113,
+                55,
+                240,
+                154,
+                209,
+                203,
+                235,
+                200,
+                92,
+                64,
+                175,
+                112,
+                20,
+                179,
+                227,
+                213,
+                76,
+                242,
+                83,
+                232,
+                93,
+                253,
+                129,
+                12,
+                101,
+                134,
+                60,
+                29,
+                46,
+                156,
+                231,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "borrow_market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                113,
+                55,
+                240,
+                154,
+                209,
+                203,
+                235,
+                200,
+                92,
+                64,
+                175,
+                112,
+                20,
+                179,
+                227,
+                213,
+                76,
+                242,
+                83,
+                232,
+                93,
+                253,
+                129,
+                12,
+                101,
+                134,
+                60,
+                29,
+                46,
+                156,
+                231,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "lending_program",
+          "docs": [
+            "固定的借贷 CPI 程序。 Pinned lending CPI program."
+          ],
+          "address": "8cxYWp74a83XZMEDMMdiRPAcvWcCkajMwpCSGehoQu4H"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "执行现金转账的经典 SPL Token 程序。 Classic SPL Token program that pays the recalled cash."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "shares_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_assets_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "strategy_swap",
+      "docs": [
+        "使用已绑定的测试储备和实时链上价格兑换金库资产。",
+        "Exchange vault assets using the bound test reserves and current on-chain price.",
+        "",
+        "`buy` 为真时用现金买入策略资产。输入和到账下限按各自 Mint 最小单位计。",
+        "`buy` uses cash to buy the spot asset when true. Input and minimum output use their respective mint base units."
+      ],
+      "discriminator": [
+        53,
+        253,
+        75,
+        226,
+        35,
+        246,
+        224,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "manager",
+          "docs": [
+            "策略配置中指定的签名钱包。 Signing wallet specified by the strategy configuration."
+          ],
+          "signer": true,
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "定价及资金流转所属的金库。 Vault whose assets are priced and moved."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          },
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "strategy",
+          "docs": [
+            "规范配置，校验管理者、金库、策略资产和市场。 Canonical config binding authority, vault, spot mint, and market."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_vault",
+          "docs": [
+            "金库真实结算资产托管。 Actual vault cash custody."
+          ],
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "asset_mint",
+          "docs": [
+            "金库原始结算 Mint。 Original vault settlement mint."
+          ],
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "strategy_custody",
+          "docs": [
+            "金库的策略资产托管，余额包含于金库净值。 Vault spot custody counted in vault NAV."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy_mint",
+          "docs": [
+            "已绑定的九位小数策略 Mint。 Bound nine-decimal spot mint."
+          ],
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "swap_cash",
+          "docs": [
+            "测试兑换所用的结算资产储备。 Test exchange settlement reserve."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  119,
+                  97,
+                  112,
+                  95,
+                  99,
+                  97,
+                  115,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "swap_strategy",
+          "docs": [
+            "测试兑换所用的策略资产储备。 Test exchange spot reserve."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  119,
+                  97,
+                  112,
+                  95,
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "docs": [
+            "绑定的市场，锚定价格及出借价值。 Bound market anchoring oracle and lending valuation."
+          ],
+          "relations": [
+            "strategy"
+          ]
+        },
+        {
+          "name": "price"
+        },
+        {
+          "name": "supply_pool"
+        },
+        {
+          "name": "supply_position"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "同一交易执行交换两条转账的经典 SPL Token 程序。 Classic SPL Token program executing both swap legs."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "buy",
+          "type": "bool"
+        },
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_out",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -444,6 +1969,19 @@
         152,
         117,
         119
+      ]
+    },
+    {
+      "name": "VaultStrategy",
+      "discriminator": [
+        116,
+        9,
+        73,
+        37,
+        73,
+        192,
+        63,
+        215
       ]
     }
   ],
@@ -472,6 +2010,32 @@
         237,
         82,
         148
+      ]
+    },
+    {
+      "name": "VaultStrategyAction",
+      "discriminator": [
+        205,
+        48,
+        115,
+        98,
+        49,
+        100,
+        60,
+        36
+      ]
+    },
+    {
+      "name": "VaultStrategyDustCleared",
+      "discriminator": [
+        213,
+        196,
+        163,
+        199,
+        174,
+        49,
+        222,
+        197
       ]
     }
   ],
@@ -560,9 +2124,191 @@
       "code": 6016,
       "name": "MinimumAssetsOutNotMet",
       "msg": "Calculated redemption payout is below the minimum"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidStrategyAccounts",
+      "msg": "Required strategy accounts do not match the vault"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidStrategyPrice",
+      "msg": "The market test price is unavailable, invalid or stale"
+    },
+    {
+      "code": 6019,
+      "name": "StrategyValuationOverflow",
+      "msg": "Vault strategy value exceeds the supported amount range"
+    },
+    {
+      "code": 6020,
+      "name": "StrategyPositionsRemain",
+      "msg": "Sell all spot and recall all lending shares before redeeming the final vault shares"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidStrategyParameters",
+      "msg": "Invalid strategy manager or limit parameters"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidStrategyAmount",
+      "msg": "Strategy input and minimum output must be greater than zero"
+    },
+    {
+      "code": 6023,
+      "name": "MinimumStrategyOutputNotMet",
+      "msg": "Strategy output is below its minimum"
+    },
+    {
+      "code": 6024,
+      "name": "StrategyLimitExceeded",
+      "msg": "The operation exceeds the strategy limit"
+    },
+    {
+      "code": 6025,
+      "name": "InsufficientStrategyLiquidity",
+      "msg": "Vault custody or test swap reserves are insufficient"
+    },
+    {
+      "code": 6026,
+      "name": "StrategyDustHasValue",
+      "msg": "The spot balance has value and must be sold for cash"
     }
   ],
   "types": [
+    {
+      "name": "LendingMarket",
+      "docs": [
+        "保存市场管理员、代币 Mint 绑定和两个托管账户的公钥。",
+        "Stores the market administrator, token mint bindings, and both custody account addresses."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "administrator",
+            "docs": [
+              "初始化时持有程序升级权限的管理员公钥。",
+              "Public key of the administrator holding program upgrade authority at initialization."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_mint",
+            "docs": [
+              "借款资金池使用的六位小数 mockUSDC Mint 公钥。",
+              "Public key of the six-decimal mockUSDC mint used by the cash pool."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_mint",
+            "docs": [
+              "抵押资产的 Mint 公钥，金额按该 Mint 自身的精度解析。",
+              "Collateral mint public key. Collateral amounts use this mint's decimal precision."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "cash_vault",
+            "docs": [
+              "与借款 Mint 绑定、由市场 PDA 授权的 SPL 资金池公钥。",
+              "SPL cash custody public key bound to the debt mint and controlled by the market PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_vault",
+            "docs": [
+              "与抵押 Mint 绑定、由市场 PDA 授权的 SPL 抵押托管公钥。",
+              "SPL collateral custody public key bound to the collateral mint and controlled by the market PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Anchor 派生的规范 bump，供后续市场 PDA 签名使用。",
+              "Canonical bump derived by Anchor for future market PDA signing."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SupplyPool",
+      "docs": [
+        "单一市场出借的资产与总份额，独立记账以沿用初始化时的市场布局。",
+        "Supplied assets and total shares of one market, stored separately to preserve the initialized market layout."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "docs": [
+              "所属借贷市场的 PDA 公钥。",
+              "Public key of the lending market PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "accounted_assets_raw",
+            "docs": [
+              "通过出借指令确认的借款资产，以六位小数的借款 Mint 最小单位记账。",
+              "Debt assets recognized by the supply instruction in base units of the six-decimal debt mint."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_shares_raw",
+            "docs": [
+              "全部钱包出借份额合计，以六位小数份额最小单位计。",
+              "Total shares across all suppliers, in six-decimal share base units."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SupplyPosition",
+      "docs": [
+        "指定市场与出借人的非转让份额记录。",
+        "Nontransferable share record for a market and supplier pair."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "docs": [
+              "此仓位所属市场的 PDA 公钥。",
+              "Public key of the market PDA for this position."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "supplier",
+            "docs": [
+              "发起出借、拥有份额的签名钱包公钥。",
+              "Public key of the signing wallet that supplies assets and owns the shares."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "shares_raw",
+            "docs": [
+              "该签名钱包持有的六位小数出借份额最小单位数。",
+              "Wallet shares in six-decimal base units."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
     {
       "name": "Vault",
       "docs": [
@@ -729,6 +2475,175 @@
             "docs": [
               "到账的 mockUSDC 最小单位数。",
               "Number of mockUSDC base units paid out."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultStrategy",
+      "docs": [
+        "管理者及单个策略资产/市场的链上配置。金额限制按交易前净值计算。",
+        "On-chain manager and single-asset/market configuration. Limits use pre-transaction NAV."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "docs": [
+              "账户所属的金库 PDA。 Vault PDA owning this configuration."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "docs": [
+              "拥有资金操作授权的钱包。 Wallet authorized to perform strategy operations."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "strategy_mint",
+            "docs": [
+              "九位小数的策略资产 Mint。 Nine-decimal strategy asset mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "docs": [
+              "使用相同一对资产的借贷市场 PDA。 Lending market PDA using the same asset pair."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "reserve_bps",
+            "docs": [
+              "出借后须保留的最低金库现金，单位为净值基点。 Minimum post-lending cash in NAV basis points."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "lending_cap_bps",
+            "docs": [
+              "允许的最高出借估值，单位为净值基点。 Maximum lending valuation in NAV basis points."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "max_trade_bps",
+            "docs": [
+              "最大单笔兑换估值，单位为净值基点。 Maximum per-swap value in NAV basis points."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "配置 PDA 的规范 bump。 Canonical configuration PDA bump."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultStrategyAction",
+      "docs": [
+        "成功执行的策略资金操作。金额和相应 Mint 同序写入 Anchor 日志。",
+        "Executed strategy operation. Amounts and corresponding mints share their order in Anchor logs."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "docs": [
+              "金库 PDA。 Vault PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "docs": [
+              "策略管理者签名钱包。 Strategy manager signer."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "0 兑换，1 出借，2 收回。 0 swap, 1 lend, 2 recall."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "input_mint",
+            "docs": [
+              "换出 Mint，出借和收回时是结算 Mint。 Input mint, or the settlement mint for lending and recall."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "output_mint",
+            "docs": [
+              "换入 Mint，出借和收回时是结算 Mint。 Output mint, or the settlement mint for lending and recall."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "input_raw",
+            "docs": [
+              "输入 Mint 的实际最小单位数。 Actual input mint base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "output_raw",
+            "docs": [
+              "输出 Mint 的实际最小单位数。 Actual output mint base units."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultStrategyDustCleared",
+      "docs": [
+        "零估值现货清理凭证。没有结算资产到账，记录实际转入测试储备的数额。",
+        "Receipt for clearing zero-valued spot. Records the transfer into test reserves without any cash payout."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "docs": [
+              "受影响的金库 PDA。 Affected vault PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "docs": [
+              "签名的策略管理者。 Signing strategy manager."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "strategy_mint",
+            "docs": [
+              "转出的策略资产 Mint。 Mint of the spot asset transferred."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_raw",
+            "docs": [
+              "转出的策略资产最小单位数。 Number of spot asset base units transferred."
             ],
             "type": "u64"
           }

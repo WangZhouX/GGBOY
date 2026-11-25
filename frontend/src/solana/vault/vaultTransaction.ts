@@ -33,6 +33,8 @@ interface PrepareVaultTransactionRequest {
   minOutputRaw: bigint;
   /** 模拟和获取区块哈希必须达到的确认 slot。 Confirmed slot floor for simulation and fetching a blockhash. */
   minContextSlot: number;
+  /** 策略启用时从同一报价 slot 取得的只读估值账户。 Read-only valuation accounts from the quote slot when strategy is enabled. */
+  pricingAccounts: readonly PublicKey[];
   /** 原子执行的关联账户创建及必要的份额归集指令。 ATA creation and any needed share consolidation to execute atomically. */
   setup: readonly TransactionInstruction[];
 }
@@ -60,6 +62,7 @@ export type VaultTransactionErrorCode =
   | 'insufficientAsset'
   | 'insufficientShares'
   | 'insufficientVaultCash'
+  | 'lastSharesRequireCash'
   | 'tooManyShareAccounts'
   | 'insufficientSol'
   | 'preparationFailed'
@@ -114,6 +117,10 @@ const programErrorCodes: Partial<Record<string, VaultTransactionErrorCode>> = {
   InsufficientVaultCash: 'insufficientVaultCash',
   InvalidVaultPricingState: 'quoteChanged',
   InvalidRedemptionPricingState: 'quoteChanged',
+  InvalidStrategyAccounts: 'quoteChanged',
+  InvalidStrategyPrice: 'quoteChanged',
+  StrategyValuationOverflow: 'quoteChanged',
+  StrategyPositionsRemain: 'lastSharesRequireCash',
   DepositSharesOverflow: 'quoteChanged',
   ZeroSharesOut: 'quoteChanged',
   ZeroAssetsOut: 'quoteChanged',
@@ -215,13 +222,18 @@ export async function prepareVaultTransaction(request: PrepareVaultTransactionRe
     commitment: 'confirmed',
     minContextSlot: request.minContextSlot,
   });
+  /** 自动收回 ABI 还要求池账本、金库借贷仓位及池现金可写。 Auto recall additionally writes the pool ledger, vault supply position and pool cash. */
+  const autoRecall = request.kind === 'redeem' && request.pricingAccounts.length === 9;
+  const pricingKeys = request.pricingAccounts.map((pubkey, index) => ({
+    pubkey, isSigner: false, isWritable: autoRecall && index >= 4 && index <= 6,
+  }));
   /** 所有账户操作与托管资金变化一起执行，任一步失败都回滚。 Account changes and vault balance changes execute together and roll back if any instruction fails. */
   const transaction = new Transaction({ ...lifetime, feePayer: request.investor }).add(
     ...request.setup,
     new TransactionInstruction({
       programId,
       data,
-      keys: instruction.accounts.map((account) => {
+      keys: [...instruction.accounts.map((account) => {
         /** 账户名由当前 IDL 决定，缺失时停止构造。 Refuse to build if an account required by this IDL is missing. */
         const pubkey = addresses[account.name];
         if (!pubkey) throw new Error('The vault instruction requires an unmapped account.');
@@ -230,7 +242,7 @@ export async function prepareVaultTransaction(request: PrepareVaultTransactionRe
           isSigner: 'signer' in account && account.signer === true,
           isWritable: 'writable' in account && account.writable === true,
         };
-      }),
+      }), ...pricingKeys],
     }),
   );
 

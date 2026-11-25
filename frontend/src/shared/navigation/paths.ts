@@ -14,6 +14,10 @@ export const paths = {
   supplyWithdrawal: '/lend/supply/withdraw',
   liquidations: '/lend/liquidations',
   strategy: '/strategy',
+  /** 每种策略操作都有独立且可复制的链接。 Each strategy action has its own shareable route. */
+  strategySwap: '/strategy/swap',
+  strategyLend: '/strategy/lend',
+  strategyRecall: '/strategy/recall',
   activity: '/activity',
   activityReceipt: '/activity/:signature/events/:eventIndex',
 } as const;

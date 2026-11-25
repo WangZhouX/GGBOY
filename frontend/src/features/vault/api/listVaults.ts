@@ -81,6 +81,9 @@ export interface VaultLatestSnapshot {
   /** 可从借贷池立即提取的金额，以结算资产最小单位计。 Immediately withdrawable lending pool amount in settlement asset base units. */
   lendingWithdrawableRaw: string;
 
+  /** 观测时链上是否启用赎回自动收回。 Whether the vault enabled automatic recall at the observed slot. */
+  autoRecallEnabled?: boolean;
+
   /** 金库总净值，以结算资产最小单位计，无法估值时为 null。 Total vault NAV in settlement asset base units, or null when unavailable. */
   navRaw: string | null;
 

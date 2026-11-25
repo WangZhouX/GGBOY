@@ -14,7 +14,13 @@
 
 [LendingPositionView.tsx](LendingPositionView.tsx) 统一处理两个页面的查询状态和仓位布局。[positionValues.ts](positionValues.ts) 将金额、份额、风险比率和价格转换为页面文本。
 
-[清算市场](LiquidationsPage.tsx) 使用独立路由。页面 CSS 位于 [styles](styles/README.md)。
+[清算市场](LiquidationsPage.tsx) 对应 `/lend/liquidations`。页面 CSS 位于 [styles](styles/README.md)。
+
+## 清算市场
+
+进入页面、切换网络或市场、刷新和清算最终确认后，从 [公开清算候选](../../features/lending/api/listLendingLiquidations.ts) 读取首屏。继续加载时原样传回游标。页面区分尚未同步、观测过期、价格不可用、无候选及请求失败。有可靠评估时显示抵押品价格、预言机和候选的健康度、抵押和债务。候选和 [最近清算交易](LendingLiquidationActivity.tsx) 均可在断开钱包时浏览。历史使用已索引的 `LENDING_LIQUIDATION`，每条交易可打开回执。
+
+当对应网络已部署并验证清算程序后，可参考[前端配置](../../../README.md#清算写操作配置)开启写操作。点击候选的「查看清算报价」，连接与借款人不同的 Phantom 钱包。[清算操作](LendingLiquidationOperation.tsx) 读取双方仓位、钱包支付余额和最新价格，显示代偿上限。核对时同时查看授权的最大代偿、预估获得的抵押品和最少到账量。交易模拟通过后交由 Phantom 签名。最终确认后按实际链上事件显示代偿、抵押到账和可能的坏账，刷新池现金、候选和活动。第三方钱包需持有对应借款资产，并用 SOL 支付交易费及可能的关联账户创建费用。已收到的签名可在遇到确认超时时重新核对。
 
 ## Devnet 借贷演示顺序
 

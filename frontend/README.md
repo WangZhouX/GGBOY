@@ -51,6 +51,17 @@ GGBOY_API_PROXY_TARGET=http://127.0.0.1:8080
 npm run api:types
 ```
 
+## 清算写操作配置
+
+「清算市场」的公开候选、价格来源和已索引历史无需额外前端配置。仅在所选测试网络已部署并验证当前清算程序后，在本目录的 `.env.local` 配置以下变量并重启 Vite。Localnet RPC 默认使用浏览器可访问的 `http://127.0.0.1:8899`。
+
+```dotenv
+VITE_GGBOY_LIQUIDATION_ENABLED=true
+VITE_SOLANA_LOCALNET_RPC_URL=http://127.0.0.1:8899
+```
+
+交易使用登记市场所对应的测试网络，并核对项目程序和市场 PDA。Localnet 使用 CLI 或本地钱包验证部署；钱包需要能在该网络广播交易才能从浏览器签名。公开演示使用 Devnet。
+
 ## 构建验证
 
 ```sh

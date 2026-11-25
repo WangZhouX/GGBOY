@@ -8,7 +8,7 @@ import {
   mintTo, TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import {
-  ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram,
+  ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SYSVAR_CLOCK_PUBKEY, SystemProgram,
   Transaction, TransactionInstruction,
 } from '@solana/web3.js';
 
@@ -49,9 +49,12 @@ function readKey(data, offset) {
  */
 async function verifyBorrowing() {
   /** 测试管理员密钥、回环 RPC 和可选的新版程序 ELF 路径。 Test administrator key, loopback RPC, and optional upgraded ELF path. */
-  const [administratorFile, rpcUrl = 'http://127.0.0.1:8899', upgradedProgramFile] = process.argv.slice(2);
+  const argumentsList = process.argv.slice(2);
+  const verifyInterest = argumentsList.includes('--interest');
+  const [administratorFile, rpcUrl = 'http://127.0.0.1:8899', upgradedProgramFile] =
+    argumentsList.filter((value) => value !== '--interest');
   assert.ok(administratorFile,
-    'Usage: node borrow-lending-market.mjs <admin-keypair-file> [local-rpc-url] [upgraded-elf]');
+    'Usage: node borrow-lending-market.mjs <admin-keypair-file> [local-rpc-url] [upgraded-elf] [--interest]');
   const endpoint = new URL(rpcUrl);
   assert.ok(endpoint.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname),
     'Use an HTTP Localnet endpoint on localhost.');
@@ -131,8 +134,9 @@ async function verifyBorrowing() {
    * @param {bigint[]} amounts u64 数量，单位由对应的 Mint 决定。 u64 amounts in the relevant mint's base units.
    * @param {Record<string, PublicKey>} accounts 本次操作的账户或负例替换项。 Action-specific addresses or negative-case substitutions.
    * @param {Keypair} [signer] 本次业务签名者。 Signer for this action.
+   * @param {object} [indexed] 计息借还款需要的供给池权限。 Supply pool privileges required by indexed loans and repayments.
    */
-  function execute(name, amounts, accounts, signer) {
+  function execute(name, amounts, accounts, signer, indexed = {}) {
     /** IDL 提供账户顺序和权限，判别符另按名称核对。 The IDL provides account order and permissions; check the discriminator independently by name. */
     const definition = idl.instructions.find((entry) => entry.name === name);
     assert.ok(definition, 'Missing built IDL instruction ' + name);
@@ -146,8 +150,13 @@ async function verifyBorrowing() {
       /** 子操作覆盖后确定的实际账户。 Actual account after applying action-specific substitutions. */
       const pubkey = addresses[account.name];
       assert.ok(pubkey instanceof PublicKey, 'Missing account ' + account.name);
-      return { pubkey, isSigner: account.signer === true, isWritable: account.writable === true };
+      return {
+        pubkey,
+        isSigner: account.signer === true,
+        isWritable: account.writable === true || (indexed.poolWritable === true && account.name === 'supply_pool'),
+      };
     });
+    if (indexed.poolRemaining) keys.push({ pubkey: supplyPool, isSigner: false, isWritable: true });
     return submit(new TransactionInstruction({ programId, data, keys }), signer);
   }
 
@@ -217,15 +226,16 @@ async function verifyBorrowing() {
     alice.debt, alice.collateral, bob.debt, bob.collateral, alice.signer.publicKey, bob.signer.publicKey];
 
   /**
-   * 从借贷程序顶层调用读取实际成交事件。
-   * Decode actual settlement events from top-level lending program invocations.
-   * @param {string[]} logs 验证器记录的真实交易日志。 Actual transaction logs recorded by the validator.
-   * @returns {object[]} 已匹配布局的动作和数量。 Actions and amounts matching the expected layout.
+   * 从借贷程序顶层调用提取指定判别符的实际事件。
+   * Extract actual events with the specified discriminator from top-level lending program calls.
+   * @param {string[]} logs 验证器记录的真实交易日志。 Actual transaction logs from the validator.
+   * @param {string} name Anchor 事件名。 Anchor event name.
+   * @returns {Buffer[]} 匹配事件的完整序列化字节。 Complete serialized bytes of matching events.
    */
-  function borrowEvents(logs) {
-    /** 调用栈排除来自其他程序或 CPI 的事件。 The invocation stack excludes other programs and CPI events. */
+  function lendingEventPayloads(logs, name) {
+    /** 调用栈排除来自其他程序或 CPI 的事件。 The invocation stack excludes events from other programs or CPI. */
     const stack = [];
-    const prefix = discriminator('event:LendingBorrowAction');
+    const prefix = discriminator('event:' + name);
     const events = [];
     for (const line of logs) {
       /** 跟踪运行时记录的程序调用。 Track invocations recorded by the runtime. */
@@ -239,16 +249,36 @@ async function verifyBorrowing() {
         continue;
       }
       if (stack.length !== 1 || stack[0] !== programId.toBase58() || !line.startsWith('Program data: ')) continue;
-      /** 两把公钥后的动作位于字节 72，后接三个小端 u64 最小单位数量。 The action is at byte 72 after both keys, followed by three little-endian u64 base-unit amounts. */
+      /** 按 Anchor 判别符过滤此调用产生的日志。 Filter this invocation's logs by the Anchor discriminator. */
       const bytes = Buffer.from(line.slice('Program data: '.length), 'base64');
-      if (!bytes.subarray(0, 8).equals(prefix)) continue;
-      assert.equal(bytes.length, 97);
-      events.push({
-        market: readKey(bytes, 8), borrower: readKey(bytes, 40), kind: bytes[72],
-        amount: bytes.readBigUInt64LE(73), collateral: bytes.readBigUInt64LE(81), debt: bytes.readBigUInt64LE(89),
-      });
+      if (bytes.subarray(0, 8).equals(prefix)) events.push(bytes);
     }
     return events;
+  }
+
+  /** 验证并解码借款事件的两个钱包标识和实际数量。 Validate and decode the addresses and actual amounts in borrowing events. */
+  function borrowEvents(logs) {
+    return lendingEventPayloads(logs, 'LendingBorrowAction').map((bytes) => {
+      /** 两把公钥后的动作位于字节 72，后接三个小端 u64 最小单位数量。 The action is at byte 72 after both keys, followed by three little-endian u64 base-unit amounts. */
+      assert.equal(bytes.length, 97);
+      return {
+        market: readKey(bytes, 8), borrower: readKey(bytes, 40), kind: bytes[72],
+        amount: bytes.readBigUInt64LE(73), collateral: bytes.readBigUInt64LE(81), debt: bytes.readBigUInt64LE(89),
+      };
+    });
+  }
+
+  /** 验证并解码清算事件的五个公钥和三个实际最小单位数量。 Validate and decode the five addresses and three actual base-unit amounts in liquidation events. */
+  function liquidationEvents(logs) {
+    return lendingEventPayloads(logs, 'LendingLiquidation').map((bytes) => {
+      /** Anchor 判别符后为五个公钥和三个小端 u64。 The Anchor discriminator precedes five keys and three little-endian u64 values. */
+      assert.equal(bytes.length, 192);
+      return {
+        market: readKey(bytes, 8), borrower: readKey(bytes, 40), liquidator: readKey(bytes, 72),
+        debtMint: readKey(bytes, 104), collateralMint: readKey(bytes, 136),
+        repaid: bytes.readBigUInt64LE(168), seized: bytes.readBigUInt64LE(176), badDebt: bytes.readBigUInt64LE(184),
+      };
+    });
   }
 
   /**
@@ -258,14 +288,15 @@ async function verifyBorrowing() {
    * @param {object} wallet 发起操作的钱包。 Wallet initiating the operation.
    * @param {bigint} amount 对应 Mint 的最小单位数量。 Amount in the relevant mint's base units.
    * @param {Record<string, PublicKey>} [overrides] 负例的账户覆盖。 Account overrides for rejection tests.
+   * @param {object} [indexed] 计息池账户权限。 Indexed pool account privileges.
    */
-  function action(name, wallet, amount, overrides) {
+  function action(name, wallet, amount, overrides, indexed) {
     return execute(name, [amount], {
       borrower: wallet.signer.publicKey, borrow_position: wallet.borrowPosition,
       source: name === 'deposit_collateral' ? wallet.collateral : wallet.debt,
       destination: name === 'withdraw_collateral' ? wallet.collateral : wallet.debt,
       ...overrides,
-    }, wallet.signer);
+    }, wallet.signer, indexed);
   }
 
   /**
@@ -301,6 +332,7 @@ async function verifyBorrowing() {
     assert.equal(result.error?.InstructionError?.[0], 1, result.logs.join('\n'));
     assert.match(result.logs.join('\n'), reason);
     assert.deepEqual(borrowEvents(result.logs), []);
+    assert.deepEqual(liquidationEvents(result.logs), []);
     assert.deepEqual(await connection.getMultipleAccountsInfo(watched), before);
   }
 
@@ -375,6 +407,10 @@ async function verifyBorrowing() {
   assert.equal(await amountAt(alice.debt), 200n * debtUnit + ltvLimit);
   assert.equal(await amountAt(cashVault), 30n * debtUnit);
   assert.equal((await stateAt(borrowMarket, 'BorrowMarket', 48)).readBigUInt64LE(40), ltvLimit);
+  if (verifyInterest) {
+    await reject(() => execute('enable_interest', [], { administrator: administrator.publicKey }),
+      /LegacyDebtOutstanding/);
+  }
 
   // 抵押足够时由流动性限制借款，同时验证现有债务不会阻止出借。
   // With sufficient collateral, constrain borrowing by liquidity and verify outstanding debt does not block new supply.
@@ -431,6 +467,241 @@ async function verifyBorrowing() {
   assert.equal(await amountAt(alice.debt), 200n * debtUnit);
   assert.equal(await amountAt(alice.collateral), 3n * collateralUnit);
   console.log('Localnet borrowing, repayment, collateral, supply compatibility, and rollback verified.');
+
+  if (verifyInterest) {
+    // 只有合法管理员还清历史债务后才能启用；重复启用也不能重置起点。
+    // Only the original administrator can enable interest after legacy settlement. A second call cannot reset the start.
+    await reject(() => execute('enable_interest', [], { administrator: bob.signer.publicKey }, bob.signer), /ConstraintHasOne/);
+    const enabled = await execute('enable_interest', [], { administrator: administrator.publicKey });
+    assert.equal(enabled.error, null, enabled.logs.join('\n'));
+    await reject(() => execute('enable_interest', [], { administrator: administrator.publicKey }), /InterestAlreadyEnabled/);
+    const enabledPool = await stateAt(supplyPool, 'SupplyPool', 88);
+    /** 账本明确区分实际托管余额与内含未偿债务的出借池资产。 Distinguish actual custody from pool book assets that include outstanding debt. */
+    const interestStart = enabledPool.readBigInt64LE(56);
+    const firstRecordedCash = enabledPool.readBigUInt64LE(64);
+    assert.equal(firstRecordedCash, 125n * debtUnit);
+    assert.equal(enabledPool.readBigUInt64LE(72), 0n);
+
+    // 原借款调用不能忽略可写出借池。首次计息借款原位扩展已有抵押仓位。
+    // An old readonly borrow cannot ignore indexed settlement. The first indexed borrow extends the existing collateral account in place.
+    await accept('deposit_collateral', alice, 0, collateralUnit, collateralUnit, 0n);
+    const borrowed = 30n * debtUnit;
+    await reject(() => action('borrow', alice, borrowed), /InterestAccountsRequired/);
+    const issued = await action('borrow', alice, borrowed, {}, { poolWritable: true });
+    assert.equal(issued.error, null, issued.logs.join('\n'));
+    assert.equal(borrowEvents(issued.logs)[0].amount, borrowed);
+    const loan = await stateAt(alice.borrowPosition, 'BorrowPosition', 112);
+    assert.equal(loan.readBigInt64LE(88), interestStart);
+    assert.ok(loan.readBigUInt64LE(96) > 0n);
+    assert.equal((await stateAt(supplyPool, 'SupplyPool', 88)).readBigUInt64LE(64), firstRecordedCash - borrowed);
+    await reject(() => action('repay', alice, debtUnit), /InterestAccountsRequired/);
+
+    // 已扩展的池仍允许正常出借和补充抵押，不提前进行应付利息转账。
+    // An extended pool still supports supply and collateral deposits without transferring unpaid interest.
+    const oneCoin = debtUnit;
+    const extraSupply = await execute('supply', [oneCoin, 1n], {
+      supplier: bob.signer.publicKey, source: bob.debt, supply_position: bob.supplyPosition,
+    }, bob.signer);
+    assert.equal(extraSupply.error, null, extraSupply.logs.join('\n'));
+    const extraCollateral = await action('deposit_collateral', alice, 1n);
+    assert.equal(extraCollateral.error, null, extraCollateral.logs.join('\n'));
+    assert.equal((await stateAt(supplyPool, 'SupplyPool', 88)).readBigUInt64LE(64), firstRecordedCash + oneCoin - borrowed);
+
+    // 使用真实链上时钟跨越计息边界，避免主机时钟或手工修改账本制造测试结果。
+    // Cross a real Localnet clock boundary without substituting the wall clock or editing accounts.
+    const deadline = Date.now() + 90_000;
+    let indexedMinuteReached = false;
+    while (Date.now() < deadline) {
+      /** Solana Clock 的 Unix 时间位于字节 32。 Solana Clock stores its Unix timestamp at byte 32. */
+      const clock = await connection.getAccountInfo(SYSVAR_CLOCK_PUBKEY);
+      if (clock && clock.data.readBigInt64LE(32) >= interestStart + 60n) {
+        indexedMinuteReached = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    assert.ok(indexedMinuteReached, 'Localnet Clock did not advance to the first interest minute.');
+
+    // 保留恰好支撑本金的抵押品现在仍因计息债务超限而失败。
+    // Collateral that only covers principal now fails the accrued-debt risk check.
+    const principalCoveredBy = (borrowed * collateralUnit * bpsUnit + 100n * debtUnit * borrowLtvBps - 1n)
+      / (100n * debtUnit * borrowLtvBps);
+    await reject(() => action('withdraw_collateral', alice, collateralUnit + 1n - principalCoveredBy), /CollateralTooLow/);
+    const partial = await action('repay', alice, 2n * debtUnit, {}, { poolRemaining: true });
+    assert.equal(partial.error, null, partial.logs.join('\n'));
+    const partPaid = borrowEvents(partial.logs)[0].amount;
+    assert.ok(partPaid > 0n && partPaid <= 2n * debtUnit);
+
+    // 最终按签名授权上限结算实际金额，利息成为池内可提的现金。
+    // Full repayment settles the actual debt under the signed maximum and makes earned interest withdrawable.
+    const finalRepay = await action('repay', alice, 40n * debtUnit, {}, { poolRemaining: true });
+    assert.equal(finalRepay.error, null, finalRepay.logs.join('\n'));
+    const [settlement] = borrowEvents(finalRepay.logs);
+    const earned = partPaid + settlement.amount - borrowed;
+    assert.equal(settlement.debt, 0n);
+    assert.ok(earned > 0n);
+    const repaidPool = await stateAt(supplyPool, 'SupplyPool', 88);
+    assert.equal(repaidPool.readBigUInt64LE(64), firstRecordedCash + oneCoin + earned);
+    assert.equal(repaidPool.readBigUInt64LE(40), firstRecordedCash + oneCoin + earned);
+    assert.equal(repaidPool.readBigUInt64LE(72), 0n);
+    const withdrawn = await execute('withdraw_supply', [
+      repaidPool.readBigUInt64LE(48), firstRecordedCash + oneCoin + 1n,
+    ], {
+      supplier: bob.signer.publicKey, destination: bob.debt, supply_position: bob.supplyPosition,
+    }, bob.signer);
+    assert.equal(withdrawn.error, null, withdrawn.logs.join('\n'));
+    assert.equal(await amountAt(cashVault), 7n * debtUnit);
+    console.log('Localnet optional indexed interest, actual repayments, accrued collateral risk, and lender proceeds verified.');
+    return;
+  }
+
+  /**
+   * 通过独立签名钱包提交清算，必要时替换钱包代币账户以测试权限。
+   * Submit liquidation from the signing wallet, optionally replacing a token account for a negative case.
+   * @param {bigint} repay 借款 Mint 最小单位的代偿金额。 Repayment in debt mint base units.
+   * @param {bigint} minimum 抵押 Mint 最小单位的最低到账。 Minimum output in collateral mint base units.
+   * @param {object} [wallet] 清算签名人和两种代币关联账户。 Liquidator signer and both token ATAs.
+   * @param {Record<string, PublicKey>} [overrides] 负例的账户覆盖。 Account substitutions for a negative case.
+   */
+  function liquidate(repay, minimum, wallet = bob, overrides = {}) {
+    return execute('liquidate', [repay, minimum], {
+      liquidator: wallet.signer.publicKey, liquidator_debt: wallet.debt,
+      liquidator_collateral: wallet.collateral, borrow_position: alice.borrowPosition,
+      ...overrides,
+    }, wallet.signer);
+  }
+
+  /**
+   * 比较确认后事件的地址、Mint、实际代偿、抵押扣划和池资产损失。
+   * Compare confirmed event addresses, mints, actual repayment, seizure, and pool loss.
+   * @param {object} result 带状态与实际日志的交易回执。 Transaction receipt with status and actual logs.
+   * @param {bigint} repaid 借款 Mint 最小单位的代偿。 Repayment in debt mint base units.
+   * @param {bigint} seized 抵押 Mint 最小单位的扣划。 Seizure in collateral mint base units.
+   * @param {bigint} badDebt 借款 Mint 最小单位的坏账。 Write-off in debt mint base units.
+   */
+  function assertLiquidation(result, repaid, seized, badDebt) {
+    assert.equal(result.error, null, result.logs.join('\n'));
+    assert.deepEqual(liquidationEvents(result.logs), [{
+      market: market.toBase58(), borrower: alice.signer.publicKey.toBase58(), liquidator: bob.signer.publicKey.toBase58(),
+      debtMint: debtMint.toBase58(), collateralMint: collateralMint.toBase58(), repaid, seized, badDebt,
+    }]);
+    console.log('liquidate confirmed: ' + result.signature);
+  }
+
+  // 1 tSOL 支撑 70 mockUSDC。下调报价至刚好 80% 时仍须拒绝清算。
+  // One tSOL backs a 70 mockUSDC loan. Liquidation must still fail exactly at the 80% threshold.
+  const liquidationDebt = 70n * debtUnit;
+  await accept('deposit_collateral', alice, 0, collateralUnit, collateralUnit, 0n);
+  await accept('borrow', alice, 1, liquidationDebt, collateralUnit, liquidationDebt);
+  assert.equal((await publish(87_500_000n)).error, null);
+  await reject(() => liquidate(debtUnit, 1n), /PositionNotLiquidatable/);
+
+  // 清算人独立签名。过高的代偿或最低到账，以及领取至他人账户，都须原子失败。
+  // An independent liquidator signs. Excess repayment, excess minimum output, or another wallet's destination must revert.
+  assert.equal((await publish(70n * debtUnit)).error, null);
+  /** 正常部分代偿 20 mockUSDC 领取 0.3 tSOL；额度上限为债务的 50%。 A 20 mockUSDC partial repayment seizes 0.3 tSOL; the close cap is 50% of debt. */
+  const partialRepay = 20n * debtUnit;
+  const partialSeized = 300_000_000n;
+  await reject(() => liquidate(partialRepay, 1n, alice), /SelfLiquidation/);
+  await reject(() => liquidate(partialRepay, 1n, bob, { liquidator_collateral: alice.collateral }),
+    /InvalidLiquidatorTokenAccount|ConstraintTokenOwner/);
+  await reject(() => liquidate(liquidationDebt / 2n + 1n, 1n), /InvalidLiquidationAmount/);
+  await reject(() => liquidate(partialRepay, partialSeized + 1n), /MinimumLiquidationCollateralNotMet/);
+  assertLiquidation(await liquidate(partialRepay, partialSeized), partialRepay, partialSeized, 0n);
+  /** 正常代偿增加托管现金，出借池已记账资产与份额无变动。 Partial repayment increases custody cash without changing recorded supply assets or shares. */
+  const partialPosition = await stateAt(alice.borrowPosition, 'BorrowPosition', 88);
+  assert.equal(partialPosition.readBigUInt64LE(72), 700_000_000n);
+  assert.equal(partialPosition.readBigUInt64LE(80), 50n * debtUnit);
+  assert.equal((await stateAt(borrowMarket, 'BorrowMarket', 48)).readBigUInt64LE(40), 50n * debtUnit);
+  assert.equal(await amountAt(cashVault), 82n * debtUnit);
+  assert.equal(await amountAt(collateralVault), 700_000_000n);
+  assert.equal(await amountAt(bob.debt), 48n * debtUnit);
+  assert.equal(await amountAt(bob.collateral), 3_300_000_000n);
+  assert.deepEqual(await stateAt(supplyPool, 'SupplyPool', 56), supplyState);
+
+  // 抵押价值暴跌后只代偿可覆盖金额。剩余抵押零头留给借款人，坏账减少账面资产和总债务。
+  // After a sharp price drop, repay only what collateral backs. Leave dust to the borrower and reduce assets and aggregate debt by the bad debt.
+  assert.equal((await publish(debtUnit)).error, null);
+  /** 以最小单位表示的实际代偿、抵押扣划、坏账和抵押零头。 Actual repayment, seizure, write-off, and residual collateral in base units. */
+  const backedRepayment = 666_666n;
+  const backedSeizure = 699_999_300n;
+  const writtenOff = 49_333_334n;
+  const collateralDust = 700n;
+  await reject(() => liquidate(backedRepayment + 1n, 1n), /InvalidLiquidationAmount/);
+  assertLiquidation(await liquidate(backedRepayment, backedSeizure), backedRepayment, backedSeizure, writtenOff);
+  /** 已冲销的仓位、损失后的池资产与实际托管现金。 Written-off position, reduced pool assets, and actual custody cash. */
+  const writtenOffPosition = await stateAt(alice.borrowPosition, 'BorrowPosition', 88);
+  const impairedPool = await stateAt(supplyPool, 'SupplyPool', 56);
+  const recordedAssets = impairedPool.readBigUInt64LE(40);
+  assert.equal(writtenOffPosition.readBigUInt64LE(72), collateralDust);
+  assert.equal(writtenOffPosition.readBigUInt64LE(80), 0n);
+  assert.equal((await stateAt(borrowMarket, 'BorrowMarket', 48)).readBigUInt64LE(40), 0n);
+  assert.equal(recordedAssets, 75_666_666n);
+  assert.equal(impairedPool.readBigUInt64LE(48), supplyState.readBigUInt64LE(48));
+  assert.equal(await amountAt(cashVault), recordedAssets + 7n * debtUnit);
+  assert.equal(await amountAt(collateralVault), collateralDust);
+  assert.equal(await amountAt(bob.debt), 47_333_334n);
+  assert.equal(await amountAt(bob.collateral), 3_999_999_300n);
+  await accept('withdraw_collateral', alice, 3, collateralDust, 0n, 0n);
+
+  // 低于一最小单位代偿的仓位以双零参数冲销，清算人不支付也不收取代币。
+  // Write off a position below one debt base unit of backed repayment using two zero arguments and no liquidator token movement.
+  assert.equal((await publish(100n * debtUnit)).error, null);
+  await accept('deposit_collateral', alice, 0, collateralDust, collateralDust, 0n);
+  await accept('borrow', alice, 1, 1n, collateralDust, 1n);
+  assert.equal((await publish(1n)).error, null);
+  /** 冲销前记录真实代币余额，以验证零代偿没有转账。 Capture real token balances to prove a zero-repayment write-off does not transfer tokens. */
+  const custodyAndLiquidator = [cashVault, collateralVault, bob.debt, bob.collateral];
+  const beforeZeroWriteOff = await Promise.all(custodyAndLiquidator.map(amountAt));
+  assertLiquidation(await liquidate(0n, 0n), 0n, 0n, 1n);
+  assert.deepEqual(await Promise.all(custodyAndLiquidator.map(amountAt)), beforeZeroWriteOff);
+  assert.equal((await stateAt(borrowMarket, 'BorrowMarket', 48)).readBigUInt64LE(40), 0n);
+  assert.equal((await stateAt(supplyPool, 'SupplyPool', 56)).readBigUInt64LE(40), recordedAssets - 1n);
+  await accept('withdraw_collateral', alice, 3, collateralDust, 0n, 0n);
+  console.log('Localnet liquidation threshold, partial settlement, bad debt, collateral dust, and rollback verified.');
+
+  // 开启计息后复用同一清算指令，按实际代偿量校验领取抵押品和出借池账面等式。
+  // Reuse liquidation after enabling interest and verify collateral output and the pool invariant against actual repayment.
+  const enabled = await execute('enable_interest', [], { administrator: administrator.publicKey });
+  assert.equal(enabled.error, null, enabled.logs.join('\n'));
+  assert.equal((await publish(100n * debtUnit)).error, null);
+  await accept('deposit_collateral', alice, 0, collateralUnit, collateralUnit, 0n);
+  /** 以 50 mockUSDC 的新借款创建计息仓位。 Create an indexed position by borrowing 50 mockUSDC. */
+  const indexedLoan = await action('borrow', alice, 50n * debtUnit, {}, { poolWritable: true });
+  assert.equal(indexedLoan.error, null, indexedLoan.logs.join('\n'));
+  /** 计息仓位和池在清算前的扩展账本。 Extended position and pool ledgers preceding liquidation. */
+  const indexedPositionBefore = await stateAt(alice.borrowPosition, 'BorrowPosition', 112);
+  const indexedPoolBefore = await stateAt(supplyPool, 'SupplyPool', 88);
+  assert.ok(indexedPositionBefore.readBigUInt64LE(96) > 0n || indexedPositionBefore.readBigUInt64LE(104) > 0n);
+  /** 将抵押价格降至 50 mockUSDC，代偿上限与最低到账仍以代币最小单位签名。 Drop the collateral price to 50 mockUSDC and sign raw repayment and minimum. */
+  const indexedPrice = 50n * debtUnit;
+  const indexedPayLimit = 10n * debtUnit;
+  assert.equal((await publish(indexedPrice)).error, null);
+  /** 确认前后读取清算人余额，验证代币 CPI 数量与事件完全一致。 Read liquidator balances around settlement and compare the token CPIs with the event. */
+  const [payerDebtBefore, payerCollateralBefore] = await Promise.all([amountAt(bob.debt), amountAt(bob.collateral)]);
+  const indexedLiquidation = await liquidate(indexedPayLimit, 1n);
+  assert.equal(indexedLiquidation.error, null, indexedLiquidation.logs.join('\n'));
+  const [indexedEvent] = liquidationEvents(indexedLiquidation.logs);
+  assert.ok(indexedEvent.repaid > 0n && indexedEvent.repaid <= indexedPayLimit);
+  const indexedSeizure = indexedEvent.repaid * 21n * collateralUnit / (20n * indexedPrice);
+  assertLiquidation(indexedLiquidation, indexedEvent.repaid, indexedSeizure, 0n);
+
+  /** 清算后仍有计息债务，池账面资产等于自有现金与全部未偿债务。 Indexed debt remains, and book assets equal accounted cash plus all debt after liquidation. */
+  const indexedPositionAfter = await stateAt(alice.borrowPosition, 'BorrowPosition', 112);
+  const indexedPoolAfter = await stateAt(supplyPool, 'SupplyPool', 88);
+  const indexedDebt = (await stateAt(borrowMarket, 'BorrowMarket', 48)).readBigUInt64LE(40);
+  const indexedCash = indexedPoolAfter.readBigUInt64LE(64);
+  assert.equal(indexedPositionAfter.readBigUInt64LE(72), collateralUnit - indexedSeizure);
+  assert.equal(indexedPositionAfter.readBigUInt64LE(80), indexedDebt);
+  assert.ok(indexedDebt > 0n && indexedDebt < indexedPositionBefore.readBigUInt64LE(80));
+  assert.equal(indexedCash, indexedPoolBefore.readBigUInt64LE(64) + indexedEvent.repaid);
+  assert.equal(indexedPoolAfter.readBigUInt64LE(40), indexedCash + indexedDebt);
+  assert.ok(indexedPoolAfter.readBigUInt64LE(40) >= indexedPoolBefore.readBigUInt64LE(40));
+  assert.equal(indexedPoolAfter.readBigUInt64LE(48), indexedPoolBefore.readBigUInt64LE(48));
+  assert.equal(await amountAt(cashVault), indexedCash + 7n * debtUnit);
+  assert.equal(await amountAt(bob.debt), payerDebtBefore - indexedEvent.repaid);
+  assert.equal(await amountAt(bob.collateral), payerCollateralBefore + indexedSeizure);
+  console.log('Localnet indexed liquidation preserves normalized debt, lender shares, and pool book assets.');
 }
 
 await verifyBorrowing();

@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { VaultListItem } from '../../features/vault/api/listVaults';
 import { depositDecimals, formatDepositInput, quoteVaultDeposit } from '../../features/vault/depositQuote';
-import { quoteVaultRedeem } from '../../features/vault/redeemQuote';
+import { toVaultRedemptionInputs } from '../../features/vault/liveVaultView';
+import { getVaultRedemptionLimit, quoteVaultRedeem } from '../../features/vault/redeemQuote';
 import { recordVaultActivityConfirmation } from '../../features/vault/useVaultRecentActivity';
 import { formatVaultAmount } from '../../features/vault/vaultAmounts';
 import { usePhantomWallet } from '../../solana/phantomWallet';
@@ -13,7 +14,7 @@ import { prepareVaultRedeem } from '../../solana/vault/redeemVault';
 import { type PreparedVaultTransaction, VaultTransactionError, waitForVaultTransaction } from '../../solana/vault/vaultTransaction';
 import './styles/vault-transaction.css';
 
-/** 现金金库当前支持的链上操作。 On-chain actions available for a cash vault. */
+/** 金库当前支持的投资者链上操作。 Investor actions available for the vault. */
 type VaultAction = 'deposit' | 'redeem';
 
 /** 所选 Devnet 金库及确认后刷新链上读数的方法。 Selected Devnet vault and its post-confirmation refresh callback. */
@@ -78,23 +79,20 @@ type ActionQuoteError = Extract<
 function quoteVaultAction(action: VaultAction, text: string, state: DevnetVaultState): ActionQuote | ActionQuoteError | null {
   if (!state.wallet || text.trim() === '') return null;
 
-  /** 两种操作共用这一读取结果中的金库余额和份额供给。 Both actions use custody cash and share supply from this read. */
-  const { cashRaw, totalSharesRaw, wallet } = state;
+  /** 金库余额、估值和份额供给均来自同一个报价 slot。 Cash, NAV and share supply come from the same quote slot. */
+  const { cashRaw, navRaw, totalSharesRaw, wallet } = state;
   if (action === 'deposit') {
     /** 存入报价的输入为 mockUSDC，到账为 GG-V。 Deposit uses mockUSDC as input and GG-V as output. */
-    const result = quoteVaultDeposit(text, { cashRaw, totalSharesRaw, assetBalanceRaw: wallet.assetBalanceRaw });
+    const result = quoteVaultDeposit(text, { cashRaw, navRaw, totalSharesRaw, assetBalanceRaw: wallet.assetBalanceRaw });
     return 'error' in result
       ? result
       : { inputRaw: result.assetsRaw, estimatedRaw: result.estimatedSharesRaw, minimumRaw: result.minSharesRaw };
   }
 
-  /** 赎回报价的输入为 GG-V，到账为 mockUSDC。 Redemption uses GG-V as input and mockUSDC as output. */
-  const result = quoteVaultRedeem(text, {
-    cashRaw,
-    totalSharesRaw,
-    shareBalanceRaw: wallet.redeemableSharesRaw,
-    assetBalanceRaw: wallet.receivableAssetBalanceRaw,
-  });
+  /** 赎回报价根据现金约束和净值计算 GG-V 可支付的 mockUSDC。 Redemption prices GG-V in mockUSDC using NAV and the cash constraint. */
+  const inputs = toVaultRedemptionInputs(state);
+  if (inputs === null) return null;
+  const result = quoteVaultRedeem(text, inputs);
   return 'error' in result
     ? result
     : { inputRaw: result.sharesRaw, estimatedRaw: result.estimatedAssetsRaw, minimumRaw: result.minAssetsRaw };
@@ -112,7 +110,7 @@ interface VaultReceipt {
 
 /** 尚无可查询签名时的流程状态和错误文案键。 Workflow states and messages before a signature becomes available. */
 type BeforeSignature = 'idle' | 'preparing' | 'awaitingSignature' | 'preparationFailed' | 'quoteChanged'
-  | 'insufficientBalance' | 'insufficientSol' | 'insufficientVaultCash' | 'tooManyShareAccounts'
+  | 'insufficientBalance' | 'insufficientSol' | 'insufficientVaultCash' | 'lastSharesRequireCash' | 'tooManyShareAccounts'
   | 'rejected' | 'walletChanged' | 'approvalPending' | 'submissionFailed';
 
 /** 已知签名时展示确认、失败或未知结果。 Present confirmation, failure, or an unknown outcome when the signature is known. */
@@ -218,6 +216,7 @@ function preparationStatus(error: unknown): BeforeSignature {
     case 'insufficientShares': return 'insufficientBalance';
     case 'insufficientSol': return 'insufficientSol';
     case 'insufficientVaultCash': return 'insufficientVaultCash';
+    case 'lastSharesRequireCash': return 'lastSharesRequireCash';
     case 'tooManyShareAccounts': return 'tooManyShareAccounts';
     default: return 'preparationFailed';
   }
@@ -235,8 +234,8 @@ function walletStatus(error: unknown): BeforeSignature {
 }
 
 /**
- * 先填写现金金库交易数量，再核对预计变动，最后请求钱包签名并核对结果。
- * Collect a cash-vault amount, review estimated movements, then request wallet approval and check the result.
+ * 先填写金库交易数量，再核对预计变动，最后请求钱包签名并核对结果。
+ * Collect a vault transaction amount, review estimated movements, then request wallet approval and check the result.
  *
  * @param props 存赎类型、金库读数、读取状态和成交后的刷新方法。 Action, vault reading, read status, and post-confirmation refresh.
  */
@@ -288,12 +287,17 @@ export function VaultTransactionSection({
   const otherStatus = attempts?.[otherAction]?.status;
   const otherPending = isActionPending(otherStatus);
   const editingLocked = isActionPending(status) || otherPending;
-  /** 余额由已确认读取决定。存款使用 mockUSDC，赎回使用可销毁的 GG-V。 Use confirmed balances: mockUSDC for deposits and burnable GG-V for redemptions. */
+  /** 余额和限额由最新一次成功读链决定。 The most recent successful read determines balances and limits. */
   const walletState = isReadError ? undefined : state?.wallet;
-  const balanceRaw = redeem ? walletState?.redeemableSharesRaw : walletState?.assetBalanceRaw;
+  /** 赎回表单使用总净值和可用现金共同计算链上限额。 The redemption form derives its on-chain limit from NAV and actual cash. */
+  const redemptionInputs = redeem && state && walletState ? toVaultRedemptionInputs(state) : null;
+  const redeemLimit = redemptionInputs ? getVaultRedemptionLimit(redemptionInputs) : null;
+  const balanceRaw = redeem ? redeemLimit?.sharesRaw : walletState?.assetBalanceRaw;
   const receivingFrozen = redeem && walletState?.receivableAssetBalanceRaw === null;
-  /** 即时报价使用同一份读数中的现金、份额及余额。 The live quote uses cash, supply, and balances from one read. */
-  const quote = state && balanceRaw !== undefined && !receivingFrozen ? quoteVaultAction(action, amount, state) : null;
+  /** 估值缺失时展示明确原因并停止报价。 Surface unavailable valuation and stop quoting when NAV is missing. */
+  const navUnavailable = !!walletState && state?.navRaw === null;
+  /** 即时报价使用同一份读数中的净值、现金、份额及余额。 The live quote uses NAV, cash, supply and balances from the same read. */
+  const quote = state && walletState && !receivingFrozen && !navUnavailable ? quoteVaultAction(action, amount, state) : null;
   /** 切换钱包、金库或操作后不复用旧报价。 Ignore reviewed quotes from another wallet, vault, or action. */
   const reviewedQuote = reviewed && reviewed.action === action && reviewed.vaultAddress === vaultAddress
     && reviewed.walletAddress === walletAddress ? reviewed.quote : null;
@@ -441,12 +445,14 @@ export function VaultTransactionSection({
           minAssetsRaw: reviewedQuote.minimumRaw,
           minContextSlot: state.slot,
           shareAccounts: state.wallet.shareAccounts,
+          pricingAccounts: state.pricingAccounts,
         })
         : await prepareVaultDeposit({
           walletAddress,
           assetsRaw: reviewedQuote.inputRaw,
           minSharesRaw: reviewedQuote.minimumRaw,
           minContextSlot: state.slot,
+          pricingAccounts: state.redemptionAccounts,
         });
     } catch (error) {
       /** 模拟发现最新账户状态下金额已变化时，需要返回填写步骤重新核对。 A simulated quote change also requires a fresh review from amount entry. */
@@ -525,7 +531,7 @@ export function VaultTransactionSection({
                       maxLength={27}
                       placeholder="0.00"
                       value={amount}
-                      disabled={editingLocked || balanceRaw === undefined || receivingFrozen}
+                      disabled={editingLocked || balanceRaw === undefined || receivingFrozen || navUnavailable}
                       aria-invalid={quoteError !== null}
                       aria-describedby={quoteError ? formId + '-balance ' + formId + '-quote-error' : formId + '-balance'}
                       onChange={(event) => setAmount(event.currentTarget.value)}
@@ -533,14 +539,14 @@ export function VaultTransactionSection({
                     <button
                       type="button"
                       className="vault-transaction__max"
-                      disabled={editingLocked || balanceRaw === undefined || balanceRaw === 0n || receivingFrozen}
+                      disabled={editingLocked || balanceRaw === undefined || balanceRaw === 0n || receivingFrozen || navUnavailable}
                       onClick={() => balanceRaw !== undefined && setAmount(formatDepositInput(balanceRaw))}
                     >
                       {t(message + 'useMax')}
                     </button>
                   </div>
                   <p id={formId + '-balance'} className="vault-transaction__hint">
-                    {balanceRaw === undefined
+                    {navUnavailable ? t(message + 'invalidVaultPrice') : balanceRaw === undefined
                       ? t(message + (isReadPending && !isReadError ? 'readPending' : 'balanceUnavailable'))
                       : <>{t(message + 'availableBalance')} {formatVaultAmount(balanceRaw, depositDecimals, locale)} {inputSymbol}</>}
                   </p>
